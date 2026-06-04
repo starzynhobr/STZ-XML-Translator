@@ -212,6 +212,7 @@ class AppController:
         on_entry_translated: Callable[[str, str], None],
         on_log: Callable[[str], None],
         on_done: Callable[[], None],
+        on_batch_start: Callable[[list[str]], None] | None = None,
     ) -> None:
         """Instantiate and start a new TranslationWorker."""
         self._worker = TranslationWorker(
@@ -220,6 +221,7 @@ class AppController:
             on_entry_translated=on_entry_translated,
             on_log=on_log,
             on_done=on_done,
+            on_batch_start=on_batch_start,
         )
         self._worker.start()
 

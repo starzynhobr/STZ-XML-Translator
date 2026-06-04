@@ -363,6 +363,13 @@ class AppViewModel(QObject):
         self._set_translating(True)
         config = self._ctrl.build_translation_config(self._selected_model_label, self._models)
 
+        def on_batch_start(xpaths: list[str]) -> None:
+            # Mark rows yellow ("translating") so the user sees activity
+            # while waiting for the API response — especially important for
+            # Gemini where the whole batch is sent in one call.
+            for xpath in xpaths:
+                self._table.update_entry(xpath, "…", "translating")
+
         def on_entry(xpath: str, text: str) -> None:
             self._table.update_entry(xpath, text, "done")
             done, total = self._ctrl.project.stats()
@@ -374,7 +381,7 @@ class AppViewModel(QObject):
         def on_done() -> None:
             self._set_translating(False)
 
-        self._ctrl.start_batch_translation(config, on_entry, on_log, on_done)
+        self._ctrl.start_batch_translation(config, on_entry, on_log, on_done, on_batch_start)
 
     @Slot()
     def cancelTranslation(self) -> None:

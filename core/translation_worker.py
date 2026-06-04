@@ -28,12 +28,14 @@ class TranslationWorker:
         on_entry_translated: Callable[[str, str], None],
         on_log: Callable[[str], None],
         on_done: Callable[[], None],
+        on_batch_start: Callable[[list[str]], None] | None = None,
     ) -> None:
         self._project = project
         self._config = config
         self._on_entry_translated = on_entry_translated
         self._on_log = on_log
         self._on_done = on_done
+        self._on_batch_start = on_batch_start
         self._cancel_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -97,25 +99,56 @@ class TranslationWorker:
             batch = pending[i : i + self.BATCH_SIZE]
 
             if service == "Gemini":
+                # Mark the whole batch as "translating" before the API call so
+                # the user gets immediate visual feedback that work is happening.
+                if self._on_batch_start:
+                    self._on_batch_start([e.xpath for e in batch])
+                self._on_log(
+                    f"Enviando lote de {len(batch)} itens para a API Gemini…"
+                )
+
                 results = self._translate_batch_gemini(batch)
+                if results is None:
+                    self._on_log("Falha no lote — interrompendo tradução.")
+                    break
+
+                skipped = 0
+                for entry in batch:
+                    text = results.get(entry.xpath)
+                    if text:
+                        project.set_translation(entry.xpath, text, status="done")
+                        self._on_entry_translated(entry.xpath, text)
+                    else:
+                        skipped += 1
+
+                if skipped:
+                    self._on_log(f"AVISO: {skipped} item(ns) pulados pela IA neste lote.")
+
             else:
-                results = self._translate_batch_sequential(batch, service)
+                # Sequential providers (DeepL, Azure, Ollama): translate one at a
+                # time and emit immediately so the table updates row-by-row.
+                failed = False
+                for entry in batch:
+                    if self._cancel_event.is_set():
+                        self._on_log("Tradução cancelada pelo usuário.")
+                        self._on_done()
+                        return
 
-            if results is None:
-                self._on_log("Falha no lote — interrompendo tradução.")
-                break
+                    # Mark this single row yellow before the API call.
+                    if self._on_batch_start:
+                        self._on_batch_start([entry.xpath])
 
-            skipped = 0
-            for entry in batch:
-                text = results.get(entry.xpath)
-                if text:
-                    project.set_translation(entry.xpath, text, status="done")
-                    self._on_entry_translated(entry.xpath, text)
-                else:
-                    skipped += 1
+                    try:
+                        text = translate_text(service, entry.original, self._config)
+                        project.set_translation(entry.xpath, text, status="done")
+                        self._on_entry_translated(entry.xpath, text)
+                    except Exception as exc:
+                        self._on_log(f"ERRO na API: {exc}")
+                        failed = True
+                        break
 
-            if skipped:
-                self._on_log(f"AVISO: {skipped} item(ns) pulados pela IA neste lote.")
+                if failed:
+                    break
 
             project.save_checkpoint(self.CHECKPOINT_FILE)
             done, _ = project.stats()
@@ -151,16 +184,3 @@ class TranslationWorker:
             self._on_log(f"ERRO na API: {exc}")
             return None
 
-    def _translate_batch_sequential(self, batch, service: str) -> dict[str, str] | None:
-        """Non-Gemini providers: translate one entry at a time."""
-        results: dict[str, str] = {}
-        for entry in batch:
-            if self._cancel_event.is_set():
-                return results  # return partial on cancel
-            try:
-                text = translate_text(service, entry.original, self._config)
-                results[entry.xpath] = text
-            except Exception as exc:
-                self._on_log(f"ERRO na API: {exc}")
-                return None
-        return results
