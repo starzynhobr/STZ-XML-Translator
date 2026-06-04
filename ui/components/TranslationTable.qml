@@ -38,7 +38,11 @@ Pane {
 
             Label {
                 anchors.centerIn: parent
-                text: tableView.model.headerData(column, Qt.Horizontal) ?? ""
+                // Reactive binding via vm.strings — headerData() is a function
+                // call and doesn't update automatically when language changes.
+                text: column === 0
+                    ? (vm.strings["original_text_label"] ?? "Original")
+                    : (vm.strings["translation_label"]   ?? "Translation")
                 font.pixelSize: 12
                 font.weight: Font.Medium
                 color: Theme.textHeader

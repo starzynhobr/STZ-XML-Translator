@@ -124,7 +124,9 @@ class AppViewModel(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._ctrl = AppController()
-        self._i18n = I18nManager(language="pt_BR")
+        # Load the locale the user last selected (falls back to pt_BR if no config)
+        saved_locale = self._ctrl.preferred_locale
+        self._i18n = I18nManager(language=saved_locale)
         self._table = TranslationTableModel(self)
         self._table.update_headers(
             self._i18n.get("original_text_label"),
@@ -145,7 +147,7 @@ class AppViewModel(QObject):
         if saved_label and saved_label in self._models:
             self._selected_model_label = saved_label
 
-        self._ctrl.set_translation_target("pt_BR")
+        self._ctrl.set_translation_target(saved_locale)
 
         # Kick off model sync if Gemini key exists
         if self._ctrl.preferred_provider == "Gemini" and self._ctrl.api_key:
@@ -299,6 +301,7 @@ class AppViewModel(QObject):
     def changeLanguage(self, locale_code: str) -> None:
         self._i18n.load_language(locale_code)
         self._ctrl.set_translation_target(locale_code)
+        self._ctrl.save_preferred_locale(locale_code)
         self._table.update_headers(
             self._i18n.get("original_text_label"),
             self._i18n.get("translation_label"),
@@ -306,6 +309,8 @@ class AppViewModel(QObject):
         self.languageChanged.emit()
         # Rebuild model labels with new locale tier strings
         self.modelsChanged.emit(self.modelLabels)
+        # providerApiKeyLinkText depends on _i18n — refresh it too
+        self.providerChanged.emit()
 
     # ------------------------------------------------------------------
     # Slots — table selection / translation

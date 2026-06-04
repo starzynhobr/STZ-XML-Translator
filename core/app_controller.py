@@ -55,6 +55,7 @@ class AppController:
         self.preferred_model_id: str = "models/gemini-flash-lite-latest"
         self.preferred_model_label: str = ""
         self.preferred_provider: str = "Gemini"
+        self.preferred_locale: str = "pt_BR"
         self.ollama_model: str = "llama3"
         self._api_keys: dict[str, str] = {}
         self.translation_target: dict[str, str] = TRANSLATION_TARGETS["pt"].copy()
@@ -72,6 +73,7 @@ class AppController:
             with open(CONFIG_FILE, encoding="utf-8") as f:
                 data = json.load(f)
             self.preferred_provider = data.get("provider", "Gemini")
+            self.preferred_locale = data.get("locale", "pt_BR")
             self.preferred_model_id = data.get("preferred_model_id", self.preferred_model_id)
             self.preferred_model_label = data.get("preferred_model", "")
             self.ollama_model = data.get("ollama_model", "llama3")
@@ -104,6 +106,7 @@ class AppController:
             self.ollama_model = ollama_model
         data: dict = {
             "provider": self.preferred_provider,
+            "locale": self.preferred_locale,
             "preferred_model": model_label,
             "preferred_model_id": model_id,
             "ollama_model": self.ollama_model,
@@ -114,6 +117,15 @@ class AppController:
                 json.dump(data, f, indent=2)
         except OSError:
             pass
+
+    def save_preferred_locale(self, locale_code: str) -> None:
+        """Persist the selected UI locale independently of a full save_config call."""
+        self.preferred_locale = locale_code
+        self.save_config(
+            api_key=self.api_key,
+            model_label=self.preferred_model_label,
+            model_id=self.preferred_model_id,
+        )
 
     def get_api_key(self, provider: str) -> str:
         return self._api_keys.get(provider, "")
