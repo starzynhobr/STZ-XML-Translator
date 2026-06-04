@@ -179,8 +179,8 @@ class AppViewModel(QObject):
     @QProperty(list, notify=modelsChanged)
     def modelLabels(self) -> list:
         """Displayed labels with localised tier badge."""
-        free = self._i18n.get("tier_free", "Free")
-        paid = self._i18n.get("tier_paid", "Paid")
+        free = self._i18n.translations.get("tier_free", "Free")
+        paid = self._i18n.translations.get("tier_paid", "Paid")
         return [
             f"{lbl} ({paid if is_p else free})"
             for lbl, (_, _, is_p) in self._models.items()
