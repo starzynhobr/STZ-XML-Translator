@@ -1,0 +1,28 @@
+[project]
+name = "game-xml-translator"
+version = "1.2.0"
+requires-python = ">=3.11"
+description = "Desktop tool for translating game XML files using AI translation services"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = [
+    "E501",  # line too long — handled by formatter
+    "UP007", # use X | Y for union types — requires Python 3.10+ in annotations
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401"]  # unused imports OK in test files
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v"

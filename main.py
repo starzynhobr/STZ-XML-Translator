@@ -1,1039 +1,680 @@
+import json
+import os
+import queue
+import sys
+import threading
+import time
+
 import customtkinter as ctk
-from tkinter import filedialog, ttk, messagebox
-import os, json, threading, time, sys, csv, re, queue
-from core.tradutor_api import translate_text, AVAILABLE_SERVICES, get_gemini_model
-from dotenv import load_dotenv
-import google.generativeai as genai
+from tkinter import filedialog, messagebox, ttk
 
-# Importa as funções dos nossos outros scripts
-from core.extrator import extrair_textos
-#from core.tradutor_api import traduzir_texto_unico
-from core.injetor import injetar_traducoes
+from core.app_controller import AppController, resource_path
 from core.i18n import I18nManager
+from core.tradutor_api import list_gemini_models
 
-TRANSLATION_TARGETS = {
-    "pt": {"code": "pt", "deepl": "PT-BR", "label": "Portuguese (Brazil)"},
-    "en": {"code": "en", "deepl": "EN-US", "label": "English"},
-    "es": {"code": "es", "deepl": "ES", "label": "Spanish"},
-    "fr": {"code": "fr", "deepl": "FR", "label": "French"},
-    "ja": {"code": "ja", "deepl": "JA", "label": "Japanese"},
-}
-
-def resource_path(relative_path):
-    """Resolve paths for bundled data in script and frozen modes."""
-    base_path = getattr(sys, "_MEIPASS", None)  # PyInstaller
-    if base_path:
-        return os.path.join(base_path, relative_path)
-
-    if getattr(sys, "frozen", False):  # Nuitka, cx_Freeze, etc.
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-    return os.path.join(base_path, relative_path)
-
-# Define a aparência padrão do aplicativo
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-# --- NOVO: Janela de Gerenciamento do Glossário ---
+
+# ---------------------------------------------------------------------------
+# Glossary window — pure UI, reads/writes glossario.json directly
+# ---------------------------------------------------------------------------
+
 class GlossaryWindow(ctk.CTkToplevel):
-    def __init__(self, master):
+    def __init__(self, master: "TranslatorApp") -> None:
         super().__init__(master)
         self.transient(master)
-        self.i18n = self.master.i18n
+        self.i18n = master.i18n
         self.title(self.i18n.get("glossary_window_title"))
         self.geometry("600x400")
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
-        
-        self.glossary_path = resource_path(os.path.join("scripts", "glossario.json"))
-        self.glossary_data = self.load_glossary()
-        self.entries = []
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, label_text=self.i18n.get("glossary_terms_label"))
-        self.scrollable_frame.pack(expand=True, fill="both", padx=10, pady=10)
+        self._glossary_path = resource_path(os.path.join("scripts", "glossario.json"))
+        self._data = self._load()
+        self._entries: list[tuple[ctk.CTkEntry, ctk.CTkEntry]] = []
 
-        self.rebuild_ui()
+        self._scrollable = ctk.CTkScrollableFrame(self, label_text=self.i18n.get("glossary_terms_label"))
+        self._scrollable.pack(expand=True, fill="both", padx=10, pady=10)
+        self._rebuild()
 
-        button_frame = ctk.CTkFrame(self)
-        button_frame.pack(fill="x", padx=10, pady=10)
-        
-        self.add_button = ctk.CTkButton(button_frame, text=self.i18n.get("glossary_add_button"), command=self.add_row)
-        self.add_button.pack(side="left", padx=5)
+        btn_frame = ctk.CTkFrame(self)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        ctk.CTkButton(btn_frame, text=self.i18n.get("glossary_add_button"), command=self._add_row).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text=self.i18n.get("glossary_save_button"), command=self._save_and_close).pack(side="right", padx=5)
 
-        self.save_button = ctk.CTkButton(button_frame, text=self.i18n.get("glossary_save_button"), command=self.save_and_close)
-        self.save_button.pack(side="right", padx=5)
-
-    def load_glossary(self):
-        if os.path.exists(self.glossary_path):
-            with open(self.glossary_path, 'r', encoding='utf-8') as f:
+    def _load(self) -> dict:
+        if os.path.exists(self._glossary_path):
+            with open(self._glossary_path, encoding="utf-8") as f:
                 return json.load(f)
         return {}
 
-    def rebuild_ui(self):
-        for widget in self.scrollable_frame.winfo_children():
+    def _rebuild(self) -> None:
+        for widget in self._scrollable.winfo_children():
             widget.destroy()
-        self.entries = []
-        for i, (key, value) in enumerate(self.glossary_data.items()):
-            self.create_row(i, key, value)
+        self._entries = []
+        for i, (key, value) in enumerate(self._data.items()):
+            self._create_row(i, key, value)
 
-    def create_row(self, index, key, value):
-        key_entry = ctk.CTkEntry(self.scrollable_frame)
-        key_entry.insert(0, key)
-        key_entry.grid(row=index, column=0, padx=5, pady=5, sticky="ew")
-        
-        value_entry = ctk.CTkEntry(self.scrollable_frame)
-        value_entry.insert(0, value)
-        value_entry.grid(row=index, column=1, padx=5, pady=5, sticky="ew")
-        
-        delete_button = ctk.CTkButton(self.scrollable_frame, text="X", width=20, fg_color="red", hover_color="darkred", command=lambda i=index: self.delete_row(i))
-        delete_button.grid(row=index, column=2, padx=5, pady=5)
-        
-        self.entries.append((key_entry, value_entry))
-        self.scrollable_frame.grid_columnconfigure(0, weight=1)
-        self.scrollable_frame.grid_columnconfigure(1, weight=1)
+    def _create_row(self, index: int, key: str, value: str) -> None:
+        key_e = ctk.CTkEntry(self._scrollable)
+        key_e.insert(0, key)
+        key_e.grid(row=index, column=0, padx=5, pady=5, sticky="ew")
+        val_e = ctk.CTkEntry(self._scrollable)
+        val_e.insert(0, value)
+        val_e.grid(row=index, column=1, padx=5, pady=5, sticky="ew")
+        ctk.CTkButton(
+            self._scrollable, text="X", width=20,
+            fg_color="red", hover_color="darkred",
+            command=lambda i=index: self._delete_row(i),
+        ).grid(row=index, column=2, padx=5, pady=5)
+        self._entries.append((key_e, val_e))
+        self._scrollable.grid_columnconfigure(0, weight=1)
+        self._scrollable.grid_columnconfigure(1, weight=1)
 
-    def add_row(self):
-        self.create_row(len(self.entries), "", "")
+    def _add_row(self) -> None:
+        self._create_row(len(self._entries), "", "")
 
-    def delete_row(self, index):
-        self.glossary_data.pop(list(self.glossary_data.keys())[index])
-        self.rebuild_ui()
+    def _delete_row(self, index: int) -> None:
+        self._data.pop(list(self._data.keys())[index])
+        self._rebuild()
 
-    def save_and_close(self):
-        new_glossary = {}
-        for key_entry, value_entry in self.entries:
-            key = key_entry.get().strip()
-            value = value_entry.get().strip()
-            if key and value:
-                new_glossary[key] = value
-        
-        with open(self.glossary_path, 'w', encoding='utf-8') as f:
-            json.dump(new_glossary, f, indent=4, ensure_ascii=False)
-        
+    def _save_and_close(self) -> None:
+        new_data = {
+            k.get().strip(): v.get().strip()
+            for k, v in self._entries
+            if k.get().strip() and v.get().strip()
+        }
+        with open(self._glossary_path, "w", encoding="utf-8") as f:
+            json.dump(new_data, f, indent=4, ensure_ascii=False)
         self.master.log(self.i18n.get("log_glossary_saved"))
         self.destroy()
 
-    def on_close(self):
-        # Poderia adicionar um aviso de "Salvar antes de fechar?" aqui
-        self.destroy()
+
+# ---------------------------------------------------------------------------
+# Main application window
+# ---------------------------------------------------------------------------
 
 class TranslatorApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.i18n = I18nManager(language="pt_BR") # Começa em português
-        self.source_language_label = "English"
-        self.preferred_model_id = None
-        self._carregar_idiomas_disponiveis()
-        nome_amigavel_inicial = [name for name, code in self.idiomas_disponiveis.items() if code == self.i18n.language][0]
-        self.language_variable = ctk.StringVar(value=nome_amigavel_inicial) 
-        self.translation_target = self._resolve_translation_target(self.i18n.language)
-        
-        self.title("Game XML Translator v1.1")
-        self.geometry("1200x700")
-        self.minsize(1000, 600)  # Define tamanho mínimo da janela
 
-        # Configura grid: colunas laterais fixas, central expansível
-        self.grid_columnconfigure(0, weight=0)  # Coluna esquerda FIXA
-        self.grid_columnconfigure(1, weight=1, minsize=400)  # Coluna central EXPANSÍVEL
-        self.grid_columnconfigure(2, weight=0)  # Coluna direita FIXA (sem minsize)
-        self.grid_rowconfigure(0, weight=1)
+        self.ctrl = AppController()
+        self.i18n = I18nManager(language="pt_BR")
+        self._translation_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._glossary_win: GlossaryWindow | None = None
 
-        self.arquivo_xml_path = ""; self.dados_traducao = {}
-        self.cancel_event = threading.Event()
-        self.translation_queue = queue.Queue()
-
-        self.modelos_disponiveis = {
+        # Model state managed in UI layer (labels ↔ IDs)
+        self.modelos_disponiveis: dict[str, tuple[str, int]] = {
             "Gemini 1.5 Flash (Rapido)": ("gemini-1.5-flash", 5),
-            "Gemini 1.5 Pro (Qualidade)": ("gemini-1.5-pro", 31)
+            "Gemini 1.5 Pro (Qualidade)": ("gemini-1.5-pro", 31),
         }
         self.modelo_selecionado = ctk.StringVar(value=list(self.modelos_disponiveis.keys())[0])
-        self.preferred_model_id = self.modelos_disponiveis[self.modelo_selecionado.get()][0]
-        self.api_key = self._carregar_api_key_existente()
 
-        # Cria os três painéis principais
-        self.left_sidebar_frame = ctk.CTkFrame(self, corner_radius=0, width=320)
-        self.left_sidebar_frame.grid(row=0, column=0, sticky="nsw", padx=(5, 2), pady=5)
-        self.left_sidebar_frame.grid_rowconfigure(14, weight=1)
-        self.left_sidebar_frame.grid_propagate(False)  # Mantém largura fixa
+        # Restore preferred model from saved config
+        if self.ctrl.preferred_model_label and self.ctrl.preferred_model_label in self.modelos_disponiveis:
+            self.modelo_selecionado.set(self.ctrl.preferred_model_label)
+        elif self.ctrl.preferred_model_id:
+            for label, (mid, _) in self.modelos_disponiveis.items():
+                if mid == self.ctrl.preferred_model_id:
+                    self.modelo_selecionado.set(label)
+                    break
 
-        self.center_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
-        self.center_frame.grid(row=0, column=1, sticky="nsew", padx=2, pady=5)
-        self.center_frame.grid_columnconfigure(0, weight=1)
-        self.center_frame.grid_rowconfigure(0, weight=1)
+        # UI locale
+        self._idiomas_disponiveis = self.ctrl.available_locales()
+        self.ctrl.set_translation_target(self.i18n.language)
+        _initial_lang = next(
+            (name for name, code in self._idiomas_disponiveis.items() if code == self.i18n.language),
+            list(self._idiomas_disponiveis.keys())[0],
+        )
+        self.language_variable = ctk.StringVar(value=_initial_lang)
 
-        self.right_sidebar_frame = ctk.CTkFrame(self, corner_radius=0, width=330)
-        self.right_sidebar_frame.grid(row=0, column=2, sticky="nsew", padx=(2, 5), pady=5)
-        self.right_sidebar_frame.grid_rowconfigure(8, weight=1)
-        self.right_sidebar_frame.grid_columnconfigure(0, weight=1)  # Coluna única com peso
-        self.right_sidebar_frame.grid_propagate(False)  # Mantém largura fixa
-        
-        # PAINEL ESQUERDO
-        # A linha da "mola" foi REMOVIDA. Agora todos os widgets ficarão juntos.
-        
-        self.project_label = ctk.CTkLabel(self.left_sidebar_frame, text=self.i18n.get("project_panel_title"), font=ctk.CTkFont(size=20, weight="bold"))
+        # Window setup
+        self.title("Game XML Translator")
+        self.geometry("1200x700")
+        self.minsize(1000, 600)
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=1, minsize=400)
+        self.grid_columnconfigure(2, weight=0)
+        self.grid_rowconfigure(0, weight=1)
+
+        self._build_left_panel()
+        self._build_center_panel()
+        self._build_right_panel()
+
+        self.update_ui_texts()
+        self.log(self.i18n.get("log_welcome"))
+        if self.ctrl.api_key:
+            self.after(200, self._sincronizar_modelos)
+
+    # ------------------------------------------------------------------
+    # Panel builders
+    # ------------------------------------------------------------------
+
+    def _build_left_panel(self) -> None:
+        f = ctk.CTkFrame(self, corner_radius=0, width=320)
+        f.grid(row=0, column=0, sticky="nsw", padx=(5, 2), pady=5)
+        f.grid_rowconfigure(14, weight=1)
+        f.grid_propagate(False)
+        self._left = f
+
+        self.project_label = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=20, weight="bold"))
         self.project_label.grid(row=0, column=0, padx=20, pady=(20, 10))
-        
-        self.load_xml_button = ctk.CTkButton(self.left_sidebar_frame, text=self.i18n.get("load_xml_button"), command=self.selecionar_arquivo_xml)
+
+        self.load_xml_button = ctk.CTkButton(f, text="", command=self._selecionar_xml)
         self.load_xml_button.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
-        
-        self.glossary_button = ctk.CTkButton(self.left_sidebar_frame, text=self.i18n.get("manage_glossary_button"), command=self.open_glossary_window)
+
+        self.glossary_button = ctk.CTkButton(f, text="", command=self._open_glossary)
         self.glossary_button.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
-        
-        self.io_frame = ctk.CTkFrame(self.left_sidebar_frame)
-        self.io_frame.grid(row=3, column=0, padx=20, pady=5, sticky="ew")
-        self.io_frame.grid_columnconfigure((0, 1), weight=1) # 2 colunas com peso igual
 
-        # Botões de Exportação (Primeira Linha)
-        self.export_json_button = ctk.CTkButton(self.io_frame, text="Exportar JSON", command=self.exportar_json_para_traducao)
+        io = ctk.CTkFrame(f)
+        io.grid(row=3, column=0, padx=20, pady=5, sticky="ew")
+        io.grid_columnconfigure((0, 1), weight=1)
+        self.export_json_button = ctk.CTkButton(io, text="", command=self._exportar_json)
         self.export_json_button.grid(row=0, column=0, padx=(5, 2), pady=(5, 2), sticky="ew")
-
-        self.export_csv_button = ctk.CTkButton(self.io_frame, text="Exportar CSV", command=self.exportar_para_csv)
+        self.export_csv_button = ctk.CTkButton(io, text="", command=self._exportar_csv)
         self.export_csv_button.grid(row=0, column=1, padx=(2, 5), pady=(5, 2), sticky="ew")
-
-        # Botões de Importação (Segunda Linha)
-        self.import_json_button = ctk.CTkButton(self.io_frame, text="Importar JSON", command=self.importar_json_traduzido)
+        self.import_json_button = ctk.CTkButton(io, text="", command=self._importar_json)
         self.import_json_button.grid(row=1, column=0, padx=(5, 2), pady=(2, 5), sticky="ew")
-
-        self.import_csv_button = ctk.CTkButton(self.io_frame, text="Importar CSV", command=self.importar_de_csv)
+        self.import_csv_button = ctk.CTkButton(io, text="", command=self._importar_csv)
         self.import_csv_button.grid(row=1, column=1, padx=(2, 5), pady=(2, 5), sticky="ew")
 
-        # IMPORTANTE: Ajuste o número da linha (row) dos widgets que vêm depois!
-        # Por exemplo, o lang_optionmenu agora deve estar na row=4, o caminho_arquivo_entry na row=5, etc.
-
-        self.lang_optionmenu = ctk.CTkOptionMenu(self.left_sidebar_frame, variable=self.language_variable, values=list(self.idiomas_disponiveis.keys()), command=self.change_language)
+        self.lang_optionmenu = ctk.CTkOptionMenu(
+            f, variable=self.language_variable,
+            values=list(self._idiomas_disponiveis.keys()),
+            command=self._change_language,
+        )
         self.lang_optionmenu.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
-        
-        self.caminho_arquivo_entry = ctk.CTkEntry(self.left_sidebar_frame, placeholder_text=self.i18n.get("loaded_file_placeholder"))
+
+        self.caminho_arquivo_entry = ctk.CTkEntry(f, placeholder_text="")
         self.caminho_arquivo_entry.grid(row=5, column=0, padx=20, pady=(10, 10), sticky="ew")
 
-        self.tag_alvo_label = ctk.CTkLabel(self.left_sidebar_frame, text=self.i18n.get("target_tag_label"))
+        self.tag_alvo_label = ctk.CTkLabel(f, text="")
         self.tag_alvo_label.grid(row=6, column=0, padx=20, pady=(10, 2))
-        
-        self.tag_alvo_entry = ctk.CTkEntry(self.left_sidebar_frame)
+        self.tag_alvo_entry = ctk.CTkEntry(f)
         self.tag_alvo_entry.insert(0, "bio")
         self.tag_alvo_entry.grid(row=7, column=0, padx=40, pady=(0, 20))
 
-        self.parent_tag_label = ctk.CTkLabel(self.left_sidebar_frame, text="Tag Pai (ex: item):")
+        self.parent_tag_label = ctk.CTkLabel(f, text="")
         self.parent_tag_label.grid(row=8, column=0, padx=20, pady=(10, 2))
-
-        # O Campo de texto para a "Tag Pai"
-        self.parent_tag_entry = ctk.CTkEntry(self.left_sidebar_frame)
+        self.parent_tag_entry = ctk.CTkEntry(f)
         self.parent_tag_entry.insert(0, "baseVillain")
-        self.parent_tag_entry.grid(row=9, column=0, padx=40, pady=(0, 10)) # Aumentei um pouco o pady
+        self.parent_tag_entry.grid(row=9, column=0, padx=40, pady=(0, 10))
 
-        self.reload_button = ctk.CTkButton(self.left_sidebar_frame, text="Recarregar", command=self.recarregar_dados_xml, state="disabled")
+        self.reload_button = ctk.CTkButton(f, text="", command=self._recarregar_xml, state="disabled")
         self.reload_button.grid(row=10, column=0, padx=40, pady=(0, 20), sticky="ew")
 
-        # --- SEÇÃO DE PROGRESSO (AGORA MAIS JUNTA) ---
-        self.progress_label = ctk.CTkLabel(self.left_sidebar_frame, text=self.i18n.get("progress_label"))
-        self.progress_label.grid(row=11, column=0, padx=20, pady=(10, 2)) # pady diminuído
-        
-        self.progressbar = ctk.CTkProgressBar(self.left_sidebar_frame, height=15)
-        self.progressbar.grid(row=12, column=0, padx=40, pady=(0, 2)) # pady diminuído
-        
-        self.stats_label = ctk.CTkLabel(self.left_sidebar_frame, text=self.i18n.get("stats_template", done=0, total=0))
-        self.stats_label.grid(row=13, column=0, padx=20, pady=(0, 20)) # pady diminuído
-        
-        # O botão de exportar agora fica na sequência, na linha 10
-        self.export_button = ctk.CTkButton(self.left_sidebar_frame, text=self.i18n.get("export_button"), command=self.exportar_xml_traduzido)
+        self.progress_label = ctk.CTkLabel(f, text="")
+        self.progress_label.grid(row=11, column=0, padx=20, pady=(10, 2))
+        self.progressbar = ctk.CTkProgressBar(f, height=15)
+        self.progressbar.grid(row=12, column=0, padx=40, pady=(0, 2))
+        self.stats_label = ctk.CTkLabel(f, text="")
+        self.stats_label.grid(row=13, column=0, padx=20, pady=(0, 20))
+
+        self.export_button = ctk.CTkButton(f, text="", command=self._exportar_xml)
         self.export_button.grid(row=15, column=0, padx=20, pady=10, sticky="ew")
 
+    def _build_center_panel(self) -> None:
+        f = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
+        f.grid(row=0, column=1, sticky="nsew", padx=2, pady=5)
+        f.grid_columnconfigure(0, weight=1)
+        f.grid_rowconfigure(0, weight=1)
 
-        # PAINEL CENTRAL
-        style = ttk.Style(); style.theme_use("default"); style.configure("Treeview", background="#2a2d2e", foreground="white", fieldbackground="#2a2d2e", borderwidth=0, rowheight=25); style.configure("Treeview.Heading", background="#565b5e", foreground="white", font=("Arial", 10, "bold")); style.map('Treeview.Heading', background=[('active', '#3484F0')])
-        self.tree = ttk.Treeview(self.center_frame, columns=("Original", "Traducao"), show="headings"); self.tree.heading("Original", text=self.i18n.get("original_text_label")); self.tree.heading("Traducao", text=self.i18n.get("translation_label")); self.tree.grid(row=0, column=0, sticky="nsew"); self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
-        self.tree.tag_configure('traduzido', background='#1E4436'); self.tree.tag_configure('traduzindo', background='#565b5e')
-        scrollbar = ctk.CTkScrollbar(self.center_frame, command=self.tree.yview); scrollbar.grid(row=0, column=1, sticky='ns'); self.tree.configure(yscrollcommand=scrollbar.set)
-        
-        # Mini-Terminal de Log
-        self.log_textbox = ctk.CTkTextbox(self.center_frame, height=100); self.log_textbox.grid(row=1, column=0, columnspan=2, padx=0, pady=(5,0), sticky="ew"); self.log_textbox.configure(state="disabled", font=("Inter", 15))
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Treeview", background="#2a2d2e", foreground="white",
+                         fieldbackground="#2a2d2e", borderwidth=0, rowheight=25)
+        style.configure("Treeview.Heading", background="#565b5e", foreground="white",
+                         font=("Arial", 10, "bold"))
+        style.map("Treeview.Heading", background=[("active", "#3484F0")])
 
-        # PAINEL DIREITO
-        self.tools_label = ctk.CTkLabel(self.right_sidebar_frame, text=self.i18n.get("tools_panel_title"), font=ctk.CTkFont(size=20, weight="bold"))
+        self.tree = ttk.Treeview(f, columns=("Original", "Traducao"), show="headings")
+        self.tree.heading("Original", text="")
+        self.tree.heading("Traducao", text="")
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+        self.tree.tag_configure("traduzido", background="#1E4436")
+        self.tree.tag_configure("traduzindo", background="#565b5e")
+
+        scrollbar = ctk.CTkScrollbar(f, command=self.tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        self.log_textbox = ctk.CTkTextbox(f, height=100, font=("Inter", 15))
+        self.log_textbox.grid(row=1, column=0, columnspan=2, padx=0, pady=(5, 0), sticky="ew")
+        self.log_textbox.configure(state="disabled")
+
+    def _build_right_panel(self) -> None:
+        f = ctk.CTkFrame(self, corner_radius=0, width=330)
+        f.grid(row=0, column=2, sticky="nsew", padx=(2, 5), pady=5)
+        f.grid_rowconfigure(8, weight=1)
+        f.grid_columnconfigure(0, weight=1)
+        f.grid_propagate(False)
+
+        self.tools_label = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=20, weight="bold"))
         self.tools_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
-        # Seleção de Modelo
-        self.model_label = ctk.CTkLabel(self.right_sidebar_frame, text=self.i18n.get("ai_model_label"), anchor="w")
+        self.model_label = ctk.CTkLabel(f, text="", anchor="w")
         self.model_label.grid(row=1, column=0, padx=20, pady=(10, 0), sticky="w")
 
-        self.model_optionmenu = ctk.CTkOptionMenu(self.right_sidebar_frame, variable=self.modelo_selecionado, values=list(self.modelos_disponiveis.keys()), command=self._on_model_change)
+        self.model_optionmenu = ctk.CTkOptionMenu(
+            f, variable=self.modelo_selecionado,
+            values=list(self.modelos_disponiveis.keys()),
+            command=self._on_model_change,
+        )
         self.model_optionmenu.grid(row=2, column=0, padx=20, pady=(0, 10), sticky="ew")
 
-        self.api_button = ctk.CTkButton(self.right_sidebar_frame, text=self.i18n.get("api_key_config"), command=self.configurar_api_key)
+        self.api_button = ctk.CTkButton(f, text="", command=self._configurar_api_key)
         self.api_button.grid(row=3, column=0, padx=20, pady=(0, 10), sticky="ew")
 
-        self.traduzir_tudo_button = ctk.CTkButton(self.right_sidebar_frame, text="Traduzir Itens Pendentes (IA)", command=self.iniciar_traducao_em_massa_resumivel)
+        self.traduzir_tudo_button = ctk.CTkButton(f, text="", command=self._iniciar_ou_cancelar_lote)
         self.traduzir_tudo_button.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
 
-        self.original_textbox = ctk.CTkTextbox(self.right_sidebar_frame, height=100)
+        self.original_textbox = ctk.CTkTextbox(f, height=100, state="disabled")
         self.original_textbox.grid(row=5, column=0, padx=20, pady=(0, 10), sticky="ew")
-        self.original_textbox.configure(state="disabled")
 
-        self.traducao_textbox = ctk.CTkTextbox(self.right_sidebar_frame, height=100)
+        self.traducao_textbox = ctk.CTkTextbox(f, height=100)
         self.traducao_textbox.grid(row=6, column=0, padx=20, pady=(0, 20), sticky="ew")
 
-        self.sugestao_button = ctk.CTkButton(self.right_sidebar_frame, text=self.i18n.get("generate_suggestion_button"), command=self.iniciar_traducao_linha_selecionada)
+        self.sugestao_button = ctk.CTkButton(f, text="", command=self._traduzir_linha)
         self.sugestao_button.grid(row=7, column=0, padx=20, pady=10, sticky="ew")
 
-        self.aprovar_button = ctk.CTkButton(self.right_sidebar_frame, text=self.i18n.get("approve_button"), fg_color="green", hover_color="darkgreen", command=self.aprovar_traducao)
+        self.aprovar_button = ctk.CTkButton(
+            f, text="", fg_color="green", hover_color="darkgreen",
+            command=self._aprovar_traducao,
+        )
         self.aprovar_button.grid(row=9, column=0, padx=20, pady=10, sticky="s")
-        
-        self.update_ui_texts()
-        self.log(self.i18n.get("log_welcome"))
-        if self.api_key:
-            self.after(200, self._sincronizar_modelos_disponiveis)
 
-    def log(self, message):
+    # ------------------------------------------------------------------
+    # Logging
+    # ------------------------------------------------------------------
+
+    def log(self, message: str) -> None:
         self.log_textbox.configure(state="normal")
         self.log_textbox.insert("end", f"[{time.strftime('%H:%M:%S')}] {message}\n")
         self.log_textbox.configure(state="disabled")
         self.log_textbox.see("end")
 
-    def _carregar_api_key_existente(self):
-        """Apenas tenta carregar a chave de um arquivo config.json existente."""
-        config_path = "config.json"
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    preferred_model = config.get("preferred_model")
-                    self.preferred_model_id = config.get("preferred_model_id", self.preferred_model_id)
-                    if preferred_model and preferred_model in self.modelos_disponiveis:
-                        self.modelo_selecionado.set(preferred_model)
-                        self.preferred_model_id = self.modelos_disponiveis[preferred_model][0]
-                    elif self.preferred_model_id:
-                        for label, (model_id, _) in self.modelos_disponiveis.items():
-                            if model_id == self.preferred_model_id:
-                                self.modelo_selecionado.set(label)
-                                break
-                    return config.get("api_key")
-            except (FileNotFoundError, json.JSONDecodeError):
-                return None
-        return None
+    # ------------------------------------------------------------------
+    # UI text sync (i18n)
+    # ------------------------------------------------------------------
 
-    def _salvar_config(self):
-        """Persiste configurações como chave da API e modelo preferido."""
-        data = {}
-        if self.api_key:
-            data["api_key"] = self.api_key
-        selected_model = self.modelo_selecionado.get() if hasattr(self, "modelo_selecionado") else None
-        if selected_model:
-            data["preferred_model"] = selected_model
-            info = self.modelos_disponiveis.get(selected_model)
-            if info:
-                self.preferred_model_id = info[0]
-                data["preferred_model_id"] = self.preferred_model_id
-        elif self.preferred_model_id:
-            data["preferred_model_id"] = self.preferred_model_id
-        config_path = "config.json"
-        if data:
-            try:
-                with open(config_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2)
-            except OSError as exc:
-                self.log(f"Falha ao salvar config.json: {exc}")
-        elif os.path.exists(config_path):
-            try:
-                os.remove(config_path)
-            except OSError as exc:
-                self.log(f"Falha ao remover config.json: {exc}")
-
-    def _on_model_change(self, selection):
-        if selection in self.modelos_disponiveis:
-            self.modelo_selecionado.set(selection)
-            info = self.modelos_disponiveis.get(selection)
-            if info:
-                self.preferred_model_id = info[0]
-            self._salvar_config()
-
-    def importar_de_csv(self):
-        """Lê um arquivo CSV e atualiza as traduções na tabela."""
-        if not self.tree.get_children():
-            messagebox.showwarning("Atenção", "Carregue um arquivo XML primeiro para popular a tabela.")
-            return
-            
-        filepath = filedialog.askopenfilename(
-            title="Selecione o arquivo CSV com as traduções",
-            filetypes=(("Arquivos CSV", "*.csv"), ("Todos os arquivos", "*.*"))
-        )
-        if not filepath:
-            self.log("Importação de CSV cancelada.")
-            return
-
-        try:
-            itens_atualizados = 0
-            with open(filepath, 'r', newline='', encoding='utf-8') as f:
-                # Usamos DictReader para ler o CSV como um dicionário, usando o cabeçalho
-                reader = csv.DictReader(f)
-                
-                for row in reader:
-                    # Pega os dados das colunas 'xpath' e 'translated_text'
-                    xpath = row.get('xpath')
-                    nova_traducao = row.get('translated_text')
-
-                    if xpath and nova_traducao is not None:
-                        # Verifica se uma linha com aquele ID (xpath) existe na tabela
-                        if self.tree.exists(xpath):
-                            original_text, _ = self.tree.item(xpath, 'values')
-                            # Atualiza a linha com a nova tradução
-                            self.tree.item(xpath, values=(original_text, nova_traducao), tags=('traduzido',))
-                            itens_atualizados += 1
-            
-            self.log(f"{itens_atualizados} itens foram atualizados a partir do arquivo CSV.")
-            self.atualizar_estatisticas()
-            
-            if itens_atualizados > 0:
-                messagebox.showinfo("Sucesso", f"{itens_atualizados} traduções foram importadas com sucesso do CSV!")
-            else:
-                messagebox.showwarning("Atenção", "Nenhuma tradução correspondente foi encontrada no arquivo CSV.")
-
-        except Exception as e:
-            messagebox.showerror("Erro de Leitura", f"Não foi possível ler ou processar o arquivo CSV.\nVerifique se o formato está correto e se possui as colunas 'xpath' e 'translated_text'.\n\nDetalhes: {e}")
-            self.log(f"Falha ao importar de CSV: {e}")
-
-    def _processar_e_carregar_xml(self):
-        """Função central que lê as tags, extrai os textos e atualiza a interface."""
-        tag_alvo = self.tag_alvo_entry.get().strip()
-        tag_pai = self.parent_tag_entry.get().strip()
-
-        if not tag_alvo or not tag_pai:
-            messagebox.showwarning("Atenção", "Por favor, especifique uma Tag Alvo e uma Tag Pai.")
-            return
-
-        sucesso, mapa_de_dados = extrair_textos(
-            arquivo_xml=self.arquivo_xml_path,
-            parent_tag=tag_pai,
-            target_tag=tag_alvo
-        )
-
-        for i in self.tree.get_children():
-            self.tree.delete(i)
-
-        if sucesso:
-            self.dados_traducao = mapa_de_dados
-            
-            # --- LÓGICA CORRIGIDA AQUI ---
-            # 1. Renomeamos as variáveis do loop para clareza: xpath e texto_original.
-            #    O método .items() retorna (chave, valor).
-            for xpath, texto_original in self.dados_traducao.items():
-                # 2. Usamos 'texto_original' para a primeira coluna (Texto Original).
-                # 3. Deixamos a segunda coluna (Tradução) vazia inicialmente.
-                # 4. Usamos o 'xpath' como ID da linha (iid), que é um identificador único perfeito.
-                self.tree.insert("", "end", iid=xpath, values=(texto_original, ""), tags=('nao_traduzido',))
-            
-            self.log(f"Arquivo '{os.path.basename(self.arquivo_xml_path)}' carregado com {len(self.dados_traducao)} itens.")
-            self.reload_button.configure(state="normal")
-        else:
-            self.dados_traducao = {}
-            if mapa_de_dados: # Verifica se há uma mensagem de erro para exibir
-                self.log(mapa_de_dados)
-
-        self.atualizar_estatisticas()
-
-    def exportar_para_csv(self):
-        """Exporta os dados da tabela (XPath, Original, Tradução) para um arquivo CSV."""
-        if not self.tree.get_children():
-            messagebox.showwarning("Atenção", "Não há dados na tabela para exportar.")
-            return
-
-        caminho_saida = filedialog.asksaveasfilename(
-            title="Salvar como CSV",
-            defaultextension=".csv",
-            filetypes=(("Arquivos CSV", "*.csv"), ("Todos os arquivos", "*.*")),
-            initialfile="traducoes.csv"
-        )
-
-        if not caminho_saida:
-            self.log("Exportação para CSV cancelada.")
-            return
-
-        try:
-            # Prepara os dados para salvar
-            dados_para_salvar = []
-            # Adiciona o cabeçalho das colunas
-            dados_para_salvar.append(['xpath', 'original_text', 'translated_text'])
-
-            # Itera sobre cada linha da tabela
-            for xpath_id in self.tree.get_children():
-                original, traducao = self.tree.item(xpath_id, 'values')
-                dados_para_salvar.append([xpath_id, original, traducao])
-            
-            # Escreve os dados no arquivo CSV
-            with open(caminho_saida, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerows(dados_para_salvar)
-            
-            messagebox.showinfo("Sucesso", f"Arquivo CSV salvo com sucesso em:\n{caminho_saida}")
-            self.log(f"Dados exportados para o arquivo CSV: {os.path.basename(caminho_saida)}")
-
-        except Exception as e:
-            messagebox.showerror("Erro de Gravação", f"Não foi possível salvar o arquivo CSV.\n\nDetalhes: {e}")
-            self.log(f"Falha ao exportar para CSV: {e}")
-
-    def selecionar_arquivo_xml(self):
-        """Abre o seletor de arquivos e dispara o processamento."""
-        filepath = filedialog.askopenfilename(title=self.i18n.get("select_xml_file"), filetypes=(("Arquivos XML", "*.xml"), ("Todos os arquivos", "*.*")))
-        if not filepath:
-            return
-
-        self.arquivo_xml_path = filepath
-        filename = os.path.basename(filepath)
-        self.caminho_arquivo_entry.configure(state="normal")
-        self.caminho_arquivo_entry.delete(0, "end")
-        self.caminho_arquivo_entry.insert(0, filename)
-        self.caminho_arquivo_entry.configure(state="disabled")
-        
-        # Chama a função central para fazer o trabalho
-        self._processar_e_carregar_xml()
-
-    def recarregar_dados_xml(self):
-        """Recarrega o arquivo XML atual usando as tags da interface."""
-        if not self.arquivo_xml_path or not os.path.exists(self.arquivo_xml_path):
-            self.log("Nenhum arquivo válido carregado para recarregar.")
-            return
-        
-        self.log("Recarregando dados com as novas tags...")
-        # Chama a mesma função central!
-        self._processar_e_carregar_xml()
-
-    def change_language(self, language_choice: str):
-        lang_code = self.idiomas_disponiveis.get(language_choice)
-        if lang_code:
-            self.i18n.load_language(lang_code)
-            self.translation_target = self._resolve_translation_target(lang_code)
-            self.update_ui_texts()
-            self.log(self.i18n.get("changed_language", lang_name=language_choice))
-
-    def exportar_json_para_traducao(self):
-        if not self.arquivo_xml_path:
-            messagebox.showwarning(self.i18n.get("warn_no_xml_title"), self.i18n.get("warn_no_xml_message"))
-            return
-
-        caminho_saida = filedialog.asksaveasfilename(
-            title="Salvar JSON para Tradução",
-            defaultextension=".json",
-            filetypes=(("Arquivos JSON", "*.json"), ("Todos os arquivos", "*.*")),
-            initialfile="textos_para_traduzir.json"
-        )
-
-        if not caminho_saida:
-            self.log("Extração de JSON cancelada.")
-            return
-
-        tag_alvo = self.tag_alvo_entry.get().strip()
-        tag_pai = self.parent_tag_entry.get().strip()
-
-        # --- LÓGICA CORRIGIDA AQUI ---
-
-        # 1. Chamamos a função para pegar os dados em memória (ela retorna uma tupla)
-        sucesso, dados_extraidos = extrair_textos(
-            arquivo_xml=self.arquivo_xml_path,
-            parent_tag=tag_pai,
-            target_tag=tag_alvo
-        )
-
-        # 2. Verificamos se a extração foi bem-sucedida
-        if sucesso:
-            try:
-                # 3. Se sim, agora nós salvamos o dicionário no arquivo escolhido pelo usuário
-                with open(caminho_saida, 'w', encoding='utf-8') as f:
-                    json.dump(dados_extraidos, f, indent=4, ensure_ascii=False)
-                
-                messagebox.showinfo("Sucesso", f"Arquivo JSON extraído com sucesso para:\n{caminho_saida}")
-                self.log("Arquivo JSON com textos originais foi extraído.")
-            except Exception as e:
-                messagebox.showerror("Erro de Gravação", f"Não foi possível salvar o arquivo JSON.\n\nDetalhes: {e}")
-                self.log(f"Falha ao salvar o JSON extraído: {e}")
-        else:
-            # 4. Se a extração falhou, 'dados_extraidos' contém a mensagem de erro
-            messagebox.showerror("Erro na Extração", f"Não foi possível extrair os textos do XML.\n\nDetalhes: {dados_extraidos}")
-            self.log(f"Falha na extração de textos: {dados_extraidos}")
-
-
-    def importar_json_traduzido(self):
-        if not self.tree.get_children():
-            messagebox.showwarning("Atenção", "Carregue um arquivo XML primeiro para popular a tabela.")
-            return
-            
-        filepath = filedialog.askopenfilename(
-            title="Selecione o arquivo JSON com as traduções",
-            filetypes=(("Arquivos JSON", "*.json"), ("Todos os arquivos", "*.*"))
-        )
-        if not filepath:
-            self.log("Importação de JSON cancelada.")
-            return
-
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                mapa_traducoes = json.load(f)
-        except Exception as e:
-            messagebox.showerror(self.i18n.get("error_file_read_title"), self.i18n.get("error_json_read_message", details=e))
-            return
-
-        self.log(self.i18n.get("log_json_importing", count=len(mapa_traducoes), filename=os.path.basename(filepath)))
-        
-        itens_atualizados = 0
-        
-        # --- LÓGICA TOTALMENTE NOVA E CORRIGIDA ---
-        # 1. Iteramos sobre o dicionário importado, pegando o xpath e a nova tradução.
-        for xpath, nova_traducao in mapa_traducoes.items():
-            
-            # 2. Verificamos se uma linha com aquele ID (xpath) existe na nossa tabela.
-            if self.tree.exists(xpath):
-                # 3. Se existe, pegamos o texto original que já está lá.
-                original_text, _ = self.tree.item(xpath, 'values')
-                
-                # 4. Atualizamos a linha usando seu ID (xpath) com a nova tradução.
-                self.tree.item(xpath, values=(original_text, nova_traducao), tags=('traduzido',))
-                
-                itens_atualizados += 1
-        
-        self.log(self.i18n.get("log_items_updated", count=itens_atualizados))
-        self.atualizar_estatisticas() # Atualiza a barra de progresso
-        
-        if itens_atualizados > 0:
-            messagebox.showinfo(self.i18n.get("info_success_title"), self.i18n.get("info_translations_imported", count=itens_atualizados))
-        else:
-            messagebox.showwarning(self.i18n.get("warn_no_xml_title"), self.i18n.get("warn_no_matches_found"))
-
-    def _carregar_idiomas_disponiveis(self):
-        self.idiomas_disponiveis = {}
-        locales_path = resource_path("locales")
-        if not os.path.exists(locales_path): return
-
-        for filename in os.listdir(locales_path):
-            if filename.endswith(".json"):
-                lang_code = filename.replace(".json", "")
-                try:
-                    with open(os.path.join(locales_path, filename), 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        lang_name = data.get("_language_name", lang_code) # Usa o nome amigável ou o código do arquivo
-                        self.idiomas_disponiveis[lang_name] = lang_code
-                except Exception as e:
-                    print(f"Erro ao carregar o idioma {filename}: {e}")
-
-    def _resolve_translation_target(self, locale_code):
-        """Map UI locale to translation target metadata."""
-        base = (locale_code or "").split("_")[0].lower()
-        meta = TRANSLATION_TARGETS.get(base)
-        if meta:
-            return dict(meta)
-        fallback = base or "en"
-        return {"code": fallback, "deepl": fallback.upper(), "label": fallback.title()}
-
-    def _format_model_label(self, model_name: str) -> str:
-        base = model_name.split("/")[-1]
-        if base.startswith("gemini-"):
-            base = base[len("gemini-"):]
-        parts = base.split("-")
-        if parts and parts[-1].lower() == "latest":
-            parts[-1] = "(Latest)"
-        parts = [p.upper() if p.isalpha() and len(p) <= 2 else p.capitalize() for p in parts]
-        return "Gemini " + " ".join(parts)
-
-    def _sincronizar_modelos_disponiveis(self):
-        """Atualiza a lista de modelos Gemini usando a API, se possível."""
-        if not self.api_key:
-            return
-
-        def worker():
-            try:
-                genai.configure(api_key=self.api_key)
-                modelos_map = {}
-                for model in genai.list_models():
-                    supported = getattr(model, "supported_generation_methods", [])
-                    if "generateContent" in supported:
-                        label = self._format_model_label(model.name)
-                        modelos_map[label] = (model.name, 32)
-                if not modelos_map:
-                    raise RuntimeError("Nenhum modelo Gemini com suporte a generateContent foi encontrado.")
-            except Exception as exc:
-                self.after(0, lambda: self.log(f"Falha ao listar modelos Gemini: {exc}"))
-                return
-
-            def atualizar_ui():
-                self.modelos_disponiveis = modelos_map
-                valores = list(modelos_map.keys())
-                self.model_optionmenu.configure(values=valores)
-                selecionado = None
-                if self.preferred_model_id:
-                    for label, (model_id, _) in modelos_map.items():
-                        if model_id == self.preferred_model_id:
-                            selecionado = label
-                            break
-                if not selecionado or selecionado not in modelos_map:
-                    selecionado = valores[0]
-                self.modelo_selecionado.set(selecionado)
-                self.preferred_model_id = modelos_map[selecionado][0]
-                self._salvar_config()
-                self.log(f"Modelos Gemini carregados ({len(valores)})")
-
-            self.after(0, atualizar_ui)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def update_ui_texts(self):
-        """
-        Esta função é o "coração" da troca de idioma. Ela passa por todos
-        os widgets e atualiza seus textos com base no novo idioma carregado.
-        """
-        # --- Título da Janela ---
+    def update_ui_texts(self) -> None:
         self.title(self.i18n.get("window_title"))
-        
-        # --- Painel Esquerdo ---
         self.project_label.configure(text=self.i18n.get("project_panel_title"))
         self.load_xml_button.configure(text=self.i18n.get("load_xml_button"))
         self.glossary_button.configure(text=self.i18n.get("manage_glossary_button"))
-        
-        # Botões de I/O
         self.import_json_button.configure(text=self.i18n.get("import_json_button"))
         self.import_csv_button.configure(text=self.i18n.get("import_csv_button"))
         self.export_json_button.configure(text=self.i18n.get("export_json_button"))
         self.export_csv_button.configure(text=self.i18n.get("export_csv_button"))
-        
         self.caminho_arquivo_entry.configure(placeholder_text=self.i18n.get("loaded_file_placeholder"))
         self.tag_alvo_label.configure(text=self.i18n.get("target_tag_label"))
         self.parent_tag_label.configure(text=self.i18n.get("parent_tag_label"))
         self.reload_button.configure(text=self.i18n.get("reload_button"))
         self.progress_label.configure(text=self.i18n.get("progress_label"))
         self.export_button.configure(text=self.i18n.get("export_button"))
-        
-        # --- Painel Central ---
         self.tree.heading("Original", text=self.i18n.get("original_text_label"))
         self.tree.heading("Traducao", text=self.i18n.get("translation_label"))
-        
-        # --- Painel Direito ---
         self.tools_label.configure(text=self.i18n.get("tools_panel_title"))
         self.model_label.configure(text=self.i18n.get("ai_model_label"))
         self.api_button.configure(text=self.i18n.get("api_key_config"))
-        
-        # Lógica para não sobrescrever o botão se ele estiver em modo "Cancelar" ou "Traduzindo"
-        current_button_text = self.traduzir_tudo_button.cget("text")
-        cancel_texts = [self.i18n.get("cancel_button"), self.i18n.get("cancelling_button"), self.i18n.get("translating_button")]
-        if current_button_text not in cancel_texts:
+        cancel_texts = {
+            self.i18n.get("cancel_button"),
+            self.i18n.get("cancelling_button"),
+            self.i18n.get("translating_button"),
+        }
+        if self.traduzir_tudo_button.cget("text") not in cancel_texts:
             self.traduzir_tudo_button.configure(text=self.i18n.get("translate_all_button"))
-            
         self.sugestao_button.configure(text=self.i18n.get("generate_suggestion_button"))
         self.aprovar_button.configure(text=self.i18n.get("approve_button"))
-        
-        # Atualiza o texto do contador (ex: "Traduzidos: 0 / 95")
-        self.atualizar_estatisticas()
+        self._atualizar_estatisticas()
 
-    def on_tree_select(self, event):
-        if not self.tree.selection(): return
-        selected_item_id = self.tree.selection()[0]
-        values = self.tree.item(selected_item_id, 'values'); original_text = values[0]; translation_text = values[1]
-        self.original_textbox.configure(state="normal"); self.original_textbox.delete("1.0", "end"); self.original_textbox.insert("1.0", original_text); self.original_textbox.configure(state="disabled")
-        self.traducao_textbox.delete("1.0", "end"); self.traducao_textbox.insert("1.0", translation_text)
+    # ------------------------------------------------------------------
+    # Tree helpers
+    # ------------------------------------------------------------------
 
-    def iniciar_traducao_linha_selecionada(self):
-        # --- GUARDIÃO DA API ---
-        if not self._ensure_api_key():
-            return # Para a execução se não houver chave
+    def _populate_tree(self) -> None:
+        for iid in self.tree.get_children():
+            self.tree.delete(iid)
+        for xpath, entry in self.ctrl.project.entries.items():
+            tag = "traduzido" if entry.status == "done" else "nao_traduzido"
+            self.tree.insert("", "end", iid=xpath, values=(entry.original, entry.translation), tags=(tag,))
 
-        if not self.tree.selection(): 
-            self.log(self.i18n.get("log_no_selection"))
+    def _atualizar_estatisticas(self) -> None:
+        done, total = self.ctrl.project.stats()
+        self.stats_label.configure(text=self.i18n.get("stats_template", done=done, total=total))
+        self.progressbar.set(done / total if total else 0)
+
+    def _on_tree_select(self, _event: object) -> None:
+        sel = self.tree.selection()
+        if not sel:
             return
-        threading.Thread(target=self._worker_traduzir_linha, daemon=True).start()
+        original, translation = self.tree.item(sel[0], "values")
+        self.original_textbox.configure(state="normal")
+        self.original_textbox.delete("1.0", "end")
+        self.original_textbox.insert("1.0", original)
+        self.original_textbox.configure(state="disabled")
+        self.traducao_textbox.delete("1.0", "end")
+        self.traducao_textbox.insert("1.0", translation)
 
-    def _worker_traduzir_linha(self):
-        selected_item_id = self.tree.selection()[0]
-        original_text = self.tree.item(selected_item_id, 'values')[0]
-        
-        self.after(0, lambda: self.tree.item(selected_item_id, tags=('traduzindo',)))
-        
-        modelo_escolhido, _ = self.modelos_disponiveis[self.modelo_selecionado.get()]
-        meta = self.translation_target or {"code": "pt", "deepl": "PT-BR", "label": "Portuguese (Brazil)"}
-        config = {
-            "api_key": self.api_key,
-            "model": modelo_escolhido,
-            "target_lang": meta.get("code", "pt"),
-            "target_label": meta.get("label", "Portuguese (Brazil)"),
-            "deepl_lang": meta.get("deepl", "PT-BR"),
-            "source_label": self.source_language_label,
-        }
-        traducao_sugerida = translate_text("Gemini", original_text, config)
-        
-        self.after(0, lambda: self._update_ui_com_traducao(selected_item_id, traducao_sugerida))
-        self.after(0, lambda: self.aprovar_traducao(id_item=selected_item_id, salvar_texto=False))
+    # ------------------------------------------------------------------
+    # XML loading
+    # ------------------------------------------------------------------
 
-    def iniciar_traducao_em_massa_resumivel(self):
-        """Inicia ou cancela a thread de tradução em massa."""
-        
-        # Se o texto do botão for "Cancelar", significa que queremos parar o processo
-        if self.traduzir_tudo_button.cget("text") == "Cancelar":
-            self.log("Solicitando cancelamento do processo de tradução...")
-            self.cancel_event.set() # Levanta a "bandeira" de cancelamento
-            self.traduzir_tudo_button.configure(state="disabled", text="Cancelando...")
+    def _selecionar_xml(self) -> None:
+        path = filedialog.askopenfilename(
+            title=self.i18n.get("select_xml_file"),
+            filetypes=(("Arquivos XML", "*.xml"), ("Todos os arquivos", "*.*")),
+        )
+        if not path:
             return
+        self.caminho_arquivo_entry.configure(state="normal")
+        self.caminho_arquivo_entry.delete(0, "end")
+        self.caminho_arquivo_entry.insert(0, os.path.basename(path))
+        self.caminho_arquivo_entry.configure(state="disabled")
+        self._carregar_xml(path)
 
-        # Se não, iniciamos o processo normalmente
-        if not self._ensure_api_key():
+    def _recarregar_xml(self) -> None:
+        if not self.ctrl.project.xml_path or not os.path.exists(self.ctrl.project.xml_path):
+            self.log("Nenhum arquivo válido carregado.")
             return
-            
-        self.cancel_event.clear() # Garante que a "bandeira" de cancelamento esteja abaixada
-        
-        # Muda o botão para o modo "Cancelar"
-        self.traduzir_tudo_button.configure(state="normal", text="Cancelar", fg_color="red", hover_color="darkred")
-        
-        # Inicia a thread "operária"
-        thread = threading.Thread(target=self._worker_traducao_resumivel, daemon=True)
-        thread.start()
-        
-        # Inicia o processador da fila para atualizar a interface
-        self.processar_fila_de_traducao()
+        self.log("Recarregando...")
+        self._carregar_xml(self.ctrl.project.xml_path)
 
-    def _worker_traducao_resumivel(self):
-        """Esta é a nossa função 'operária'. Ela roda em segundo plano, é resumível e pode ser cancelada."""
-        
-        ARQUIVO_SAIDA = "textos_traduzidos_checkpoint.json"
-        TAMANHO_DO_LOTE = 120
-
-        # Carrega o progresso anterior, se houver
-        dados_traduzidos = {}
-        if os.path.exists(ARQUIVO_SAIDA):
-            with open(ARQUIVO_SAIDA, 'r', encoding='utf-8') as f:
-                try: 
-                    dados_traduzidos = json.load(f)
-                except json.JSONDecodeError: 
-                    pass # Ignora o arquivo se estiver corrompido e começa do zero
-        
-        # Pega todos os xpaths da tabela e filtra os que já foram traduzidos
-        todos_xpaths = self.tree.get_children()
-        xpaths_pendentes = [xpath for xpath in todos_xpaths if xpath not in dados_traduzidos]
-        
-        if not xpaths_pendentes:
-            self.log("Todos os itens já parecem estar traduzidos no arquivo de checkpoint.")
-            self.traduzir_tudo_button.configure(state="normal", text="Traduzir Itens Pendentes (IA)")
-            self.translation_queue.put(("DONE", "DONE")) # Avisa a UI para resetar o botão
+    def _carregar_xml(self, path: str) -> None:
+        tag_alvo = self.tag_alvo_entry.get().strip()
+        tag_pai = self.parent_tag_entry.get().strip()
+        if not tag_alvo or not tag_pai:
+            messagebox.showwarning("Atenção", "Especifique Tag Alvo e Tag Pai.")
             return
-
-        lista_de_itens_pendentes = [(xpath, self.tree.item(xpath, 'values')[0]) for xpath in xpaths_pendentes]
-        total_pendentes = len(lista_de_itens_pendentes)
-        
-        self.log(self.i18n.get("log_batch_complete", count=total_pendentes))
-
-        for i in range(0, total_pendentes, TAMANHO_DO_LOTE):
-            
-            # Antes de processar o lote, verifica se o cancelamento foi solicitado
-            if self.cancel_event.is_set():
-                self.log(self.i18n.get("log_mass_translation_cancelled"))
-                self.translation_queue.put(("DONE", "DONE")) # Avisa a UI que terminamos
-                return
-
-            lote_atual = lista_de_itens_pendentes[i:i + TAMANHO_DO_LOTE]
-            texto_para_prompt = ""
-            xpaths_enviados_neste_lote = []
-            for xpath, texto in lote_atual:
-                texto_para_prompt += f"[ID: {xpath}]\n{texto}\n---\n"
-                xpaths_enviados_neste_lote.append(xpath)
-            
-            resposta_do_lote = self._traduzir_lote_api(texto_para_prompt)
-            
-            if resposta_do_lote:
-                traducoes_encontradas = re.findall(r'\[ID: (.*?)\]\n(.*?)\n---', resposta_do_lote, re.DOTALL)
-                
-                xpaths_recebidos_neste_lote = []
-                for xpath, texto_traduzido in traducoes_encontradas:
-                    xpath_limpo = xpath.strip()
-                    dados_traduzidos[xpath_limpo] = texto_traduzido.strip()
-                    self.translation_queue.put((xpath_limpo, texto_traduzido.strip()))
-                    xpaths_recebidos_neste_lote.append(xpath_limpo)
-                
-                # Lógica para detectar e avisar sobre itens pulados
-                xpaths_pulados = set(xpaths_enviados_neste_lote) - set(xpaths_recebidos_neste_lote)
-                if xpaths_pulados:
-                    self.log(f"AVISO: {len(xpaths_pulados)} item(ns) foram pulados pela IA neste lote.")
-
-                # CHECKPOINT: Salva o progresso total
-                with open(ARQUIVO_SAIDA, 'w', encoding='utf-8') as f:
-                    json.dump(dados_traduzidos, f, indent=4, ensure_ascii=False)
-                self.log(self.i18n.get("log_batch_complete", count=len(dados_traduzidos)))
-            else:
-                self.log(self.i18n.get("log_batch_fail"))
-                break # Interrompe o processo se houver uma falha na API
-
-            time.sleep(5)
-            
-        self.log(self.i18n.get("log_mass_translation_done"))
-        # Sinaliza para a interface que o trabalho acabou
-        self.translation_queue.put(("DONE", "DONE"))
-
-    def _traduzir_lote_api(self, lote_de_texto):
-        """Funcao auxiliar que efetivamente chama a API Gemini."""
-        try:
-            genai.configure(api_key=self.api_key)
-            modelo_nome, _ = self.modelos_disponiveis.get(
-                self.modelo_selecionado.get(),
-                ("gemini-1.5-flash", 0),
-            )
-            model = get_gemini_model(modelo_nome)
-            meta = self.translation_target or {"label": "Portuguese (Brazil)"}
-            target_label = meta.get("label", "Portuguese (Brazil)")
-            prompt = (
-                "Act as a game localization specialist.\n"
-                "Each entry below is formatted as [ID: ...] followed by text.\n"
-                f"Translate every entry to {target_label}. Keep the IDs and separators exactly as provided.\n\n"
-                "---BEGIN BLOCK---\n"
-                f"{lote_de_texto}\n"
-                "---END BLOCK---\n"
-            )
-            response = model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            self.log(f"ERRO na API: {e}")
-            return None
-
-    def processar_fila_de_traducao(self):
-        """Verifica a fila de traduções e atualiza a interface gráfica."""
-        try:
-            # Pega um item da fila sem bloquear
-            xpath, traducao = self.translation_queue.get_nowait()
-            
-            if xpath == "DONE":
-                # O trabalho acabou, reabilita o botão
-                self.traduzir_tudo_button.configure(state="normal", text=self.i18n.get("translate_all_button"))
-                return
-
-            # Atualiza a tabela
-            if self.tree.exists(xpath):
-                original_text, _ = self.tree.item(xpath, 'values')
-                self.tree.item(xpath, values=(original_text, traducao), tags=('traduzido',))
-                self.atualizar_estatisticas()
-            
-            # Chama a si mesma novamente para continuar processando a fila
-            self.after(100, self.processar_fila_de_traducao)
-
-        except queue.Empty:
-            # A fila está vazia, mas a thread ainda pode estar trabalhando.
-            # Continua checando a cada 100ms.
-            self.after(100, self.processar_fila_de_traducao)
-
-    def aprovar_traducao(self, id_item=None, salvar_texto=True):
-        selected_item_id = id_item if id_item else (self.tree.selection()[0] if self.tree.selection() else None)
-        if not selected_item_id: return
-        
-        tags_atuais = self.tree.item(selected_item_id, 'tags')
-        original_text, traducao_antiga = self.tree.item(selected_item_id, 'values')
-        
-        nova_traducao = traducao_antiga
-        if salvar_texto:
-            nova_traducao = self.traducao_textbox.get("1.0", "end-1c").strip()
-        
-        # Atualiza a tabela com o novo valor e a nova tag
-        self.tree.item(selected_item_id, values=(original_text, nova_traducao), tags=('traduzido',))
-        
-        # Só atualiza as estatísticas se o item era 'nao_traduzido' antes.
-        # Isso evita contar o mesmo item duas vezes.
-        if 'nao_traduzido' in tags_atuais:
-            self.atualizar_estatisticas()
-        
-    def _update_textbox_com_feedback(self, item_id, texto):
-        if self.tree.selection() and self.tree.selection()[0] == item_id:
-            self.traducao_textbox.delete("1.0", "end")
-            self.traducao_textbox.insert("1.0", texto)
-
-    def _update_ui_com_traducao(self, item_id, traducao_sugerida):
-        original_text = self.tree.item(item_id, 'values')[0]
-        self.tree.item(item_id, values=(original_text, traducao_sugerida))
-        if self.tree.selection() and self.tree.selection()[0] == item_id:
-            self.traducao_textbox.delete("1.0", "end"); self.traducao_textbox.insert("1.0", traducao_sugerida)
-    
-    def atualizar_estatisticas(self):
-        # Lógica 100% baseada na contagem de tags, muito mais confiável.
-        total_itens = len(self.tree.get_children())
-        itens_traduzidos = len(self.tree.tag_has('traduzido'))
-        
-        self.stats_label.configure(text=self.i18n.get("stats_template", done=itens_traduzidos, total=total_itens))
-        progresso = itens_traduzidos / total_itens if total_itens > 0 else 0
-        self.progressbar.set(progresso)
-
-
-    def configurar_api_key(self):
-        """Permite atualizar a chave de API manualmente."""
-        self._ensure_api_key(force=True)
-
-    def _ensure_api_key(self, force=False):
-        """Verifica se a chave API existe. Se não, pede ao usuário. Retorna True se a chave estiver disponível."""
-        if self.api_key and not force:
-            return True
-
-        dialog = ctk.CTkInputDialog(text=self.i18n.get("api_gemini_key"), title=self.i18n.get("api_key_config"))
-        key = dialog.get_input()
-
-        if key:
-            self.api_key = key.strip()
-            self._salvar_config()
-            self._sincronizar_modelos_disponiveis()
-            self.log("Chave de API configurada com sucesso.")
-            return True
-
-        if self.api_key and force:
-            self.log("Atualizacao da chave API cancelada.")
+        sucesso, erro = self.ctrl.load_xml(path, tag_pai, tag_alvo)
+        if sucesso:
+            self._populate_tree()
+            count = len(self.ctrl.project.entries)
+            self.log(f"'{os.path.basename(path)}' carregado com {count} itens.")
+            self.reload_button.configure(state="normal")
         else:
-            self.log(self.i18n.get("log_api_key_needed"))
-        return False
+            self.log(erro)
+        self._atualizar_estatisticas()
 
-    def exportar_xml_traduzido(self):
-        if not self.arquivo_xml_path:
+    # ------------------------------------------------------------------
+    # Export / Import
+    # ------------------------------------------------------------------
+
+    def _exportar_xml(self) -> None:
+        if not self.ctrl.project.xml_path:
             messagebox.showwarning(self.i18n.get("warn_no_xml_title"), self.i18n.get("warn_no_xml_message"))
             return
-
-        # Pega a tag alvo da interface (não é mais necessária para a injeção, mas mantemos por consistência)
-        tag_alvo = self.tag_alvo_entry.get().strip()
-        if not tag_alvo:
-            messagebox.showwarning(self.i18n.get("warn_tags_title"), self.i18n.get("warn_tags_message"))
-            return
-
-        # --- LÓGICA CORRIGIDA AQUI ---
-
-        # FIX 1: Montando o dicionário da forma correta (XPath -> Tradução)
-        mapa_final_traducoes = {}
-        for xpath_id in self.tree.get_children():
-            # O ID de cada linha (child_id) É o próprio XPath
-            _original, traducao = self.tree.item(xpath_id, 'values')
-            
-            # Só adicionamos ao mapa se houver uma tradução
-            if traducao.strip():
-                mapa_final_traducoes[xpath_id] = traducao
-        
-        if not mapa_final_traducoes:
+        if not self.ctrl.project.get_translations_map():
             messagebox.showwarning(self.i18n.get("warn_no_xml_title"), self.i18n.get("warn_no_translations_to_export"))
             return
-
-        caminho_saida = filedialog.asksaveasfilename(
+        path = filedialog.asksaveasfilename(
             title=self.i18n.get("save_as"),
             defaultextension=".xml",
             filetypes=(("Arquivos XML", "*.xml"), ("Todos os arquivos", "*.*")),
-            initialfile=f"{os.path.basename(self.arquivo_xml_path).replace('.xml', '')}_traduzido.xml"
+            initialfile=os.path.basename(self.ctrl.project.xml_path).replace(".xml", "_traduzido.xml"),
         )
-
-        if not caminho_saida:
-            self.log(self.i18n.get("export_cancelled"))
+        if not path:
             return
-            
-        # FIX 2: Chamando a função injetar_traducoes com os parâmetros corretos
-        sucesso = injetar_traducoes(
-            arquivo_xml_original=self.arquivo_xml_path,
-            mapa_traducoes=mapa_final_traducoes,
-            arquivo_xml_final=caminho_saida
-        )
-
-        if sucesso:
-            messagebox.showinfo("Sucesso", f"Arquivo XML traduzido salvo com sucesso em:\n{caminho_saida}")
+        if self.ctrl.export_xml(path):
+            messagebox.showinfo("Sucesso", f"XML salvo em:\n{path}")
             self.log("Exportação bem-sucedida.")
         else:
             messagebox.showerror("Erro", self.i18n.get("export_fail"))
-            self.log("Falha na exportação.")
 
-    def open_glossary_window(self):
-        if hasattr(self, 'glossary_win') and self.glossary_win.winfo_exists():
-            self.glossary_win.focus()
+    def _exportar_json(self) -> None:
+        if not self.ctrl.project.xml_path:
+            messagebox.showwarning(self.i18n.get("warn_no_xml_title"), self.i18n.get("warn_no_xml_message"))
+            return
+        path = filedialog.asksaveasfilename(
+            title="Salvar JSON para Tradução",
+            defaultextension=".json",
+            filetypes=(("Arquivos JSON", "*.json"), ("Todos os arquivos", "*.*")),
+            initialfile="textos_para_traduzir.json",
+        )
+        if not path:
+            return
+        if self.ctrl.export_json(path):
+            messagebox.showinfo("Sucesso", f"JSON salvo em:\n{path}")
+            self.log("JSON exportado.")
         else:
-            self.glossary_win = GlossaryWindow(self)
+            messagebox.showerror("Erro de Gravação", "Não foi possível salvar o arquivo JSON.")
 
-# --- Ponto de Entrada da Aplicação ---
+    def _exportar_csv(self) -> None:
+        if not self.tree.get_children():
+            messagebox.showwarning("Atenção", "Não há dados na tabela para exportar.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Salvar como CSV",
+            defaultextension=".csv",
+            filetypes=(("Arquivos CSV", "*.csv"), ("Todos os arquivos", "*.*")),
+            initialfile="traducoes.csv",
+        )
+        if not path:
+            return
+        if self.ctrl.export_csv(path):
+            messagebox.showinfo("Sucesso", f"CSV salvo em:\n{path}")
+            self.log(f"CSV exportado: {os.path.basename(path)}")
+        else:
+            messagebox.showerror("Erro de Gravação", "Não foi possível salvar o arquivo CSV.")
+
+    def _importar_json(self) -> None:
+        if not self.tree.get_children():
+            messagebox.showwarning("Atenção", "Carregue um XML primeiro.")
+            return
+        path = filedialog.askopenfilename(
+            title="Selecione o JSON com traduções",
+            filetypes=(("Arquivos JSON", "*.json"), ("Todos os arquivos", "*.*")),
+        )
+        if not path:
+            return
+        count = self.ctrl.import_json(path)
+        self._populate_tree()
+        self._atualizar_estatisticas()
+        self.log(self.i18n.get("log_items_updated", count=count))
+        if count:
+            messagebox.showinfo(self.i18n.get("info_success_title"), self.i18n.get("info_translations_imported", count=count))
+        else:
+            messagebox.showwarning("Atenção", self.i18n.get("warn_no_matches_found"))
+
+    def _importar_csv(self) -> None:
+        if not self.tree.get_children():
+            messagebox.showwarning("Atenção", "Carregue um XML primeiro.")
+            return
+        path = filedialog.askopenfilename(
+            title="Selecione o CSV com traduções",
+            filetypes=(("Arquivos CSV", "*.csv"), ("Todos os arquivos", "*.*")),
+        )
+        if not path:
+            return
+        count = self.ctrl.import_csv(path)
+        self._populate_tree()
+        self._atualizar_estatisticas()
+        self.log(f"{count} itens atualizados do CSV.")
+        if count:
+            messagebox.showinfo("Sucesso", f"{count} traduções importadas do CSV.")
+        else:
+            messagebox.showwarning("Atenção", "Nenhuma tradução correspondente encontrada no CSV.")
+
+    # ------------------------------------------------------------------
+    # Config / API key
+    # ------------------------------------------------------------------
+
+    def _configurar_api_key(self) -> None:
+        self._ensure_api_key(force=True)
+
+    def _ensure_api_key(self, force: bool = False) -> bool:
+        if self.ctrl.api_key and not force:
+            return True
+        dialog = ctk.CTkInputDialog(text=self.i18n.get("api_gemini_key"), title=self.i18n.get("api_key_config"))
+        key = dialog.get_input()
+        if key:
+            label = self.modelo_selecionado.get()
+            mid, _ = self.modelos_disponiveis.get(label, (self.ctrl.preferred_model_id, 0))
+            self.ctrl.save_config(api_key=key.strip(), model_label=label, model_id=mid)
+            self._sincronizar_modelos()
+            self.log("Chave de API configurada com sucesso.")
+            return True
+        if not force:
+            self.log(self.i18n.get("log_api_key_needed"))
+        return False
+
+    def _on_model_change(self, label: str) -> None:
+        if label in self.modelos_disponiveis:
+            mid, _ = self.modelos_disponiveis[label]
+            self.ctrl.save_config(api_key=self.ctrl.api_key, model_label=label, model_id=mid)
+
+    def _sincronizar_modelos(self) -> None:
+        if not self.ctrl.api_key:
+            return
+
+        def worker() -> None:
+            try:
+                modelos_map = list_gemini_models(self.ctrl.api_key)
+                if not modelos_map:
+                    raise RuntimeError("Nenhum modelo Gemini encontrado.")
+            except Exception as exc:
+                self.after(0, lambda: self.log(f"Falha ao listar modelos Gemini: {exc}"))
+                return
+
+            def update_ui() -> None:
+                self.modelos_disponiveis = modelos_map
+                valores = list(modelos_map.keys())
+                self.model_optionmenu.configure(values=valores)
+                selecionado = next(
+                    (lbl for lbl, (mid, _) in modelos_map.items() if mid == self.ctrl.preferred_model_id),
+                    valores[0],
+                )
+                self.modelo_selecionado.set(selecionado)
+                mid, _ = modelos_map[selecionado]
+                self.ctrl.save_config(api_key=self.ctrl.api_key, model_label=selecionado, model_id=mid)
+                self.log(f"Modelos Gemini carregados ({len(valores)})")
+
+            self.after(0, update_ui)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Translation — single entry
+    # ------------------------------------------------------------------
+
+    def _traduzir_linha(self) -> None:
+        if not self._ensure_api_key():
+            return
+        sel = self.tree.selection()
+        if not sel:
+            self.log(self.i18n.get("log_no_selection"))
+            return
+        xpath = sel[0]
+        self.tree.item(xpath, tags=("traduzindo",))
+        config = self.ctrl.build_translation_config(self.modelo_selecionado.get(), self.modelos_disponiveis)
+
+        def worker() -> None:
+            result = self.ctrl.translate_single(xpath, config)
+            self.after(0, lambda: self._apply_single_translation(xpath, result))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_single_translation(self, xpath: str, translation: str) -> None:
+        self.ctrl.project.set_translation(xpath, translation)
+        if self.tree.exists(xpath):
+            original, _ = self.tree.item(xpath, "values")
+            self.tree.item(xpath, values=(original, translation), tags=("traduzido",))
+        if self.tree.selection() and self.tree.selection()[0] == xpath:
+            self.traducao_textbox.delete("1.0", "end")
+            self.traducao_textbox.insert("1.0", translation)
+        self._atualizar_estatisticas()
+
+    # ------------------------------------------------------------------
+    # Translation — batch
+    # ------------------------------------------------------------------
+
+    def _iniciar_ou_cancelar_lote(self) -> None:
+        if self.ctrl.is_translating():
+            self.log("Solicitando cancelamento...")
+            self.ctrl.cancel_translation()
+            self.traduzir_tudo_button.configure(state="disabled", text=self.i18n.get("cancelling_button"))
+            return
+
+        if not self._ensure_api_key():
+            return
+
+        self.traduzir_tudo_button.configure(
+            state="normal", text=self.i18n.get("cancel_button"),
+            fg_color="red", hover_color="darkred",
+        )
+        config = self.ctrl.build_translation_config(self.modelo_selecionado.get(), self.modelos_disponiveis)
+
+        def on_entry(xpath: str, text: str) -> None:
+            self._translation_queue.put((xpath, text))
+
+        def on_log(msg: str) -> None:
+            self.after(0, lambda: self.log(msg))
+
+        def on_done() -> None:
+            self._translation_queue.put(("__DONE__", ""))
+
+        self.ctrl.start_batch_translation(config, on_entry, on_log, on_done)
+        self._processar_fila()
+
+    def _processar_fila(self) -> None:
+        try:
+            while True:
+                xpath, text = self._translation_queue.get_nowait()
+                if xpath == "__DONE__":
+                    self.traduzir_tudo_button.configure(
+                        state="normal", text=self.i18n.get("translate_all_button"),
+                        fg_color=["#3B8ED0", "#1F6AA5"], hover_color=["#36719F", "#144870"],
+                    )
+                    return
+                if self.tree.exists(xpath):
+                    original, _ = self.tree.item(xpath, "values")
+                    self.tree.item(xpath, values=(original, text), tags=("traduzido",))
+                self._atualizar_estatisticas()
+        except queue.Empty:
+            pass
+        self.after(100, self._processar_fila)
+
+    # ------------------------------------------------------------------
+    # Approve translation
+    # ------------------------------------------------------------------
+
+    def _aprovar_traducao(self) -> None:
+        sel = self.tree.selection()
+        if not sel:
+            return
+        xpath = sel[0]
+        nova = self.traducao_textbox.get("1.0", "end-1c").strip()
+        old_tags = self.tree.item(xpath, "tags")
+        self.ctrl.project.set_translation(xpath, nova)
+        original, _ = self.tree.item(xpath, "values")
+        self.tree.item(xpath, values=(original, nova), tags=("traduzido",))
+        if "nao_traduzido" in old_tags:
+            self._atualizar_estatisticas()
+
+    # ------------------------------------------------------------------
+    # Language switch
+    # ------------------------------------------------------------------
+
+    def _change_language(self, lang_name: str) -> None:
+        code = self._idiomas_disponiveis.get(lang_name)
+        if code:
+            self.i18n.load_language(code)
+            self.ctrl.set_translation_target(code)
+            self.update_ui_texts()
+            self.log(self.i18n.get("changed_language", lang_name=lang_name))
+
+    # ------------------------------------------------------------------
+    # Glossary window
+    # ------------------------------------------------------------------
+
+    def _open_glossary(self) -> None:
+        if self._glossary_win and self._glossary_win.winfo_exists():
+            self._glossary_win.focus()
+        else:
+            self._glossary_win = GlossaryWindow(self)
+
+
 if __name__ == "__main__":
     app = TranslatorApp()
     app.mainloop()

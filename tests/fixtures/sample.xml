@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <item>
+        <id>001</id>
+        <dispName>Hero of Light</dispName>
+        <description>A brave warrior who fights for justice.</description>
+    </item>
+    <item>
+        <id>002</id>
+        <dispName>Shadow Rogue</dispName>
+        <description>A cunning thief who lurks in the darkness.</description>
+    </item>
+    <item>
+        <id>003</id>
+        <dispName>Ancient Mage</dispName>
+        <description>A wise sorcerer with mastery over arcane arts.</description>
+    </item>
+    <item>
+        <id>004</id>
+        <dispName></dispName>
+        <description>   </description>
+    </item>
+</root>

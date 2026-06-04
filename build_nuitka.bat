@@ -1,9 +1,9 @@
 @echo off
-REM Script para compilar o aplicativo com Nuitka
-REM Resolve problemas de DLL do Python
+REM Compila o Game XML Translator (versão PySide6 + QML) com Nuitka.
+REM Entry point: main_qt.py   Plugin: pyside6   Inclui: ui/, locales/, assets/
 
 echo ========================================
-echo  Compilando com Nuitka
+echo  Compilando com Nuitka (PySide6 + QML)
 echo ========================================
 echo.
 
@@ -17,7 +17,7 @@ if exist ".venv\Scripts\activate.bat" (
 )
 
 echo.
-echo Instalando/Atualizando Nuitka no ambiente virtual...
+echo Instalando/Atualizando Nuitka...
 python -m pip install --upgrade pip
 python -m pip install --upgrade nuitka ordered-set zstandard
 
@@ -39,12 +39,13 @@ if exist "assets\icon.ico" (
 python -m nuitka ^
     --standalone ^
     --onefile ^
-    --enable-plugin=tk-inter ^
+    --enable-plugin=pyside6 ^
     %ICON_PARAM% ^
     --windows-console-mode=disable ^
+    --include-data-dir=ui=ui ^
     --include-data-dir=locales=locales ^
     --include-data-dir=assets=assets ^
-    --nofollow-import-to=tkinter.test ^
+    --include-data-dir=core=core ^
     --nofollow-import-to=test ^
     --assume-yes-for-downloads ^
     --output-filename=GameXMLTranslator.exe ^
@@ -55,7 +56,7 @@ python -m nuitka ^
     --product-version=1.2.0.0 ^
     --file-description="Tradutor de arquivos XML de jogos" ^
     --windows-uac-admin=no ^
-    main.py
+    main_qt.py
 
 if %ERRORLEVEL% EQU 0 (
     echo.

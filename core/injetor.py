@@ -1,7 +1,9 @@
 # Em core/injetor.py - SUBSTITUA O CONTEÚDO TODO
 
-from lxml import etree as ET # 1. MUDANÇA IMPORTANTE: Usando a biblioteca lxml
 import json
+
+from lxml import etree as ET  # 1. MUDANÇA IMPORTANTE: Usando a biblioteca lxml
+
 
 def injetar_traducoes(arquivo_xml_original: str, mapa_traducoes, arquivo_xml_final: str):
     """
@@ -12,7 +14,7 @@ def injetar_traducoes(arquivo_xml_original: str, mapa_traducoes, arquivo_xml_fin
     try:
         # 2. LÓGICA MELHORADA: Se recebermos um caminho de arquivo, lemos o JSON.
         if isinstance(mapa_traducoes, str):
-            with open(mapa_traducoes, 'r', encoding='utf-8') as f:
+            with open(mapa_traducoes, encoding='utf-8') as f:
                 mapa_xpath_traducao = json.load(f)
         else:
             mapa_xpath_traducao = mapa_traducoes

@@ -1,6 +1,7 @@
 import json
 import os
 
+
 class I18nManager:
     def __init__(self, language="pt_BR"):
         self.translations = {}
@@ -11,7 +12,7 @@ class I18nManager:
     def load_language(self, language):
         filepath = os.path.join(self.locales_path, f"{language}.json")
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(filepath, encoding='utf-8') as f:
                 self.translations = json.load(f)
                 self.language = language
         except FileNotFoundError:

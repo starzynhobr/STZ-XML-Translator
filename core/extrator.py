@@ -1,7 +1,8 @@
 # Em core/extrator.py - SUBSTITUA O CONTEÚDO TODO
 
-import xml.etree.ElementTree as ET
 import os
+import xml.etree.ElementTree as ET
+
 
 def get_xpath(elem, root, parent_map):
     """Gera um XPath único para um elemento, compatível com a biblioteca padrão."""
