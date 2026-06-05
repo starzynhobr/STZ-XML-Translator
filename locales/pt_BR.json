@@ -92,5 +92,13 @@
     "log_api_key_saved": "Chave de API configurada.",
     "caption_save_json": "Salvar JSON",
     "caption_save_csv": "Salvar CSV",
-    "caption_import_csv": "Importar CSV"
+    "caption_import_csv": "Importar CSV",
+    "save_inplace_button": "💾 Salvar no Arquivo Atual",
+    "save_inplace_confirm_title": "Sobrescrever Arquivo Original",
+    "save_inplace_confirm_message": "Esta ação irá substituir permanentemente o arquivo original:\n\n{filename}\n\nO arquivo carregado permanecerá aberto após salvar. Esta operação não pode ser desfeita.",
+    "save_inplace_confirm_action": "Sobrescrever",
+    "log_saved_inplace": "Arquivo '{filename}' salvo com sucesso (no lugar).",
+    "clear_checkpoint_button": "🔄 Reiniciar Tradução",
+    "log_checkpoint_cleared": "{count} itens marcados como pendentes. Pronto para nova tradução.",
+    "log_select_tags_first": "Selecione a Tag Pai e a Tag Alvo antes de carregar."
 }

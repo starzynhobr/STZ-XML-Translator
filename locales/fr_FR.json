@@ -83,5 +83,13 @@
     "log_api_key_saved": "Clé API enregistrée.",
     "caption_save_json": "Enregistrer JSON",
     "caption_save_csv": "Enregistrer CSV",
-    "caption_import_csv": "Importer CSV"
+    "caption_import_csv": "Importer CSV",
+    "save_inplace_button": "💾 Enregistrer dans le Fichier Actuel",
+    "save_inplace_confirm_title": "Écraser le Fichier Original",
+    "save_inplace_confirm_message": "Cette action remplacera définitivement le fichier original :\n\n{filename}\n\nLe fichier restera chargé après l'enregistrement. Cette action est irréversible.",
+    "save_inplace_confirm_action": "Écraser",
+    "log_saved_inplace": "Fichier '{filename}' enregistré sur place avec succès.",
+    "clear_checkpoint_button": "🔄 Réinitialiser la Traduction",
+    "log_checkpoint_cleared": "{count} éléments marqués comme en attente. Prêt pour une nouvelle traduction.",
+    "log_select_tags_first": "Sélectionnez la balise parente et la balise cible avant de charger."
 }

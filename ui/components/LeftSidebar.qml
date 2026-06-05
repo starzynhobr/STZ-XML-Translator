@@ -37,7 +37,7 @@ Pane {
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.topMargin: 16
                 Layout.bottomMargin: vm.loadedFileName ? 4 : 6
-                onClicked: vm.loadXml(parentTagField.text, targetTagField.text)
+                onClicked: vm.loadXml(parentTagCombo.value, targetTagCombo.value)
             }
 
             // Nome do arquivo carregado — só aparece quando há arquivo
@@ -154,23 +154,24 @@ Pane {
                 Layout.leftMargin: 16
                 Layout.bottomMargin: 2
             }
-            TextField {
-                id: parentTagField
-                text: "baseVillain"
-                placeholderText: "ex: item"
+            TagComboBox {
+                id: parentTagCombo
+                suggestions: vm.parentTags
+                // Enable as soon as a file is chosen (even before entries load).
+                enabled: vm.hasXmlPath
+                placeholderText: "ex: baseVillain"
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.bottomMargin: 8
-                onTextChanged: vm.setParentTag(text)
-                Component.onCompleted: vm.setParentTag(text)
+                onCommitted: function(tag) { vm.selectParentTag(tag) }
 
-                color: Theme.textInput
-                placeholderTextColor: Theme.textPlaceholder
-                background: Rectangle {
-                    color: Theme.bgInput
-                    radius: 4
-                    border.color: parent.activeFocus ? Theme.borderFocus : Theme.borderInput
-                    border.width: parent.activeFocus ? 2 : 1
+                // Sync fields when tags are set (e.g. after Recarregar).
+                Connections {
+                    target: vm
+                    function onSelectedTagChanged(parentTag, targetTag) {
+                        parentTagCombo.value = parentTag
+                        targetTagCombo.value = targetTag
+                    }
                 }
             }
 
@@ -181,24 +182,15 @@ Pane {
                 Layout.leftMargin: 16
                 Layout.bottomMargin: 2
             }
-            TextField {
-                id: targetTagField
-                text: "bio"
-                placeholderText: "ex: dispName"
+            TagComboBox {
+                id: targetTagCombo
+                suggestions: vm.childTags
+                enabled: vm.hasXmlPath
+                placeholderText: "ex: bio"
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.bottomMargin: 8
-                onTextChanged: vm.setTargetTag(text)
-                Component.onCompleted: vm.setTargetTag(text)
-
-                color: Theme.textInput
-                placeholderTextColor: Theme.textPlaceholder
-                background: Rectangle {
-                    color: Theme.bgInput
-                    radius: 4
-                    border.color: parent.activeFocus ? Theme.borderFocus : Theme.borderInput
-                    border.width: parent.activeFocus ? 2 : 1
-                }
+                onCommitted: function(tag) { vm.setTargetTag(tag) }
             }
 
             AppButton {
@@ -207,7 +199,8 @@ Pane {
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.bottomMargin: 16
-                enabled: vm.entryCount > 0
+                // Enable as soon as a file is selected; validation happens in reloadXml().
+                enabled: vm.hasXmlPath
                 onClicked: vm.reloadXml()
 
                 background: Rectangle {
@@ -282,7 +275,7 @@ Pane {
                 text: vm.strings["export_button"] ?? "Export XML"
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 16
+                Layout.bottomMargin: 8
                 enabled: root.progressDone > 0
                 onClicked: vm.exportXml("")
 
@@ -302,6 +295,167 @@ Pane {
                     verticalAlignment: Text.AlignVCenter
                     font.weight: Font.Medium
                     font.pixelSize: 13
+                }
+            }
+
+            // ---- separator to visually distance Save In Place ----
+            Rectangle {
+                height: 1; color: Theme.borderSubtle
+                Layout.fillWidth: true; Layout.leftMargin: 16; Layout.rightMargin: 16
+                Layout.bottomMargin: 8
+            }
+
+            // ---- Save In Place (neutral style — the modal is the warning) ----
+            AppButton {
+                id: saveInPlaceBtn
+                text: vm.strings["save_inplace_button"] ?? "💾 Save to Current File"
+                Layout.fillWidth: true
+                Layout.leftMargin: 16; Layout.rightMargin: 16
+                Layout.bottomMargin: 16
+                enabled: vm.entryCount > 0
+                onClicked: overwriteDialog.open()
+
+                background: Rectangle {
+                    color: saveInPlaceBtn.enabled
+                        ? (saveInPlaceBtn.hovered ? Theme.bgSurface3 : Theme.secondary)
+                        : Theme.bgBase
+                    radius: 4
+                    border.color: saveInPlaceBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
+                    border.width: 1
+                    Behavior on color { ColorAnimation { duration: 100 } }
+                }
+                contentItem: Label {
+                    text: saveInPlaceBtn.text
+                    color: saveInPlaceBtn.enabled ? Theme.onSecondary : Theme.textDisabled
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font.pixelSize: 13
+                }
+            }
+        }
+    }
+
+    // ---- Overwrite confirmation dialog ----
+    // Everything lives in a single contentItem (ColumnLayout) to avoid the
+    // header/footer height-calculation bugs in FluentWinUI3's Dialog style.
+    Dialog {
+        id: overwriteDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 360
+        padding: 0
+        // Close on Esc OR clicking outside the dialog
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.bgSurface2
+            radius: 8
+            border.color: Theme.borderModerate
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // ── Header ──────────────────────────────────────────────────
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: 56
+
+                Label {
+                    anchors {
+                        left: parent.left; right: parent.right
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: 20; rightMargin: 20
+                    }
+                    text: vm.strings["save_inplace_confirm_title"] ?? "Overwrite Original File"
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                    color: Theme.danger
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width; height: 1
+                    color: Theme.borderSubtle
+                }
+            }
+
+            // ── Body ─────────────────────────────────────────────────────
+            Label {
+                Layout.fillWidth: true
+                Layout.topMargin: 20
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                Layout.bottomMargin: 20
+                text: {
+                    var tpl = vm.strings["save_inplace_confirm_message"]
+                              ?? "This will permanently replace:\n\n{filename}\n\nThis cannot be undone."
+                    return tpl.replace("{filename}", vm.loadedFileName)
+                }
+                wrapMode: Text.WordWrap
+                font.pixelSize: 13
+                color: Theme.textPrimary
+                lineHeight: 1.5
+            }
+
+            // ── Footer ───────────────────────────────────────────────────
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.borderSubtle
+            }
+
+            Row {
+                Layout.alignment: Qt.AlignRight
+                Layout.rightMargin: 16
+                Layout.topMargin: 12
+                Layout.bottomMargin: 12
+                spacing: 8
+
+                // Neutral "close" — no destructive connotation
+                AppButton {
+                    text: vm.strings["close_button"] ?? "Close"
+                    onClicked: overwriteDialog.close()
+
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                        radius: 4
+                        border.color: Theme.borderModerate
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text
+                        color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font: parent.font
+                    }
+                }
+
+                // Destructive confirm — stays red as the clear danger signal
+                AppButton {
+                    text: vm.strings["save_inplace_confirm_action"] ?? "Overwrite"
+                    onClicked: {
+                        overwriteDialog.close()
+                        vm.saveInPlace()
+                    }
+
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.dangerHover : Theme.danger
+                        radius: 4
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text
+                        color: "#ffffff"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.weight: Font.Medium
+                        font.pixelSize: 13
+                    }
                 }
             }
         }

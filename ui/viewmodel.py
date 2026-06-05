@@ -113,6 +113,7 @@ class AppViewModel(QObject):
     progressChanged = Signal(int, int)
     modelsChanged = Signal(list)
     translatingChanged = Signal(bool)
+    singleTranslatingChanged = Signal(bool)
     entrySelected = Signal(str, str, str)
     languageChanged = Signal()
     xmlLoaded = Signal(int)
@@ -120,6 +121,10 @@ class AppViewModel(QObject):
     entryCountChanged = Signal(int)
     loadedFileNameChanged = Signal()
     providerChanged = Signal()
+    parentTagsChanged = Signal()
+    childTagsChanged = Signal()
+    selectedTagChanged = Signal(str, str)   # (parent_tag, target_tag)
+    xmlPathSelectedChanged = Signal()        # fired when a file is chosen (before entries load)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -140,7 +145,11 @@ class AppViewModel(QObject):
         }
         self._selected_model_label: str = list(self._models.keys())[0]
         self._is_translating: bool = False
+        self._is_single_translating: bool = False
         self._selected_xpath: str = ""
+        self._parent_tags: list[str] = []
+        self._child_tags: list[str] = []
+        self._xml_path_selected: str = ""   # path chosen via file dialog, before entries are loaded
 
         # Restore preferred model from config
         saved_label = self._ctrl.preferred_model_label
@@ -165,14 +174,32 @@ class AppViewModel(QObject):
     def isTranslating(self) -> bool:
         return self._is_translating
 
+    @QProperty(bool, notify=singleTranslatingChanged)
+    def isSingleTranslating(self) -> bool:
+        return self._is_single_translating
+
     @QProperty(int, notify=entryCountChanged)
     def entryCount(self) -> int:
         return len(self._ctrl.project.entries)
 
     @QProperty(str, notify=loadedFileNameChanged)
     def loadedFileName(self) -> str:
-        path = self._ctrl.project.xml_path
+        # Show filename as soon as a file is chosen, even before entries are loaded.
+        path = self._xml_path_selected or self._ctrl.project.xml_path
         return os.path.basename(path) if path else ""
+
+    @QProperty(bool, notify=xmlPathSelectedChanged)
+    def hasXmlPath(self) -> bool:
+        """True once the user has picked an XML file (even before entries load)."""
+        return bool(self._xml_path_selected or self._ctrl.project.xml_path)
+
+    @QProperty(list, notify=parentTagsChanged)
+    def parentTags(self) -> list:
+        return self._parent_tags
+
+    @QProperty(list, notify=childTagsChanged)
+    def childTags(self) -> list:
+        return self._child_tags
 
     # ------------------------------------------------------------------
     # Properties — models (Gemini)
@@ -339,11 +366,16 @@ class AppViewModel(QObject):
         if self._ctrl.preferred_provider != "Ollama (Local)" and not self._ctrl.api_key:
             self.errorOccurred.emit(self._i18n.get("log_api_key_needed"))
             return
+        if self._is_single_translating:
+            return  # already running, ignore extra clicks
         xpath = self._selected_xpath
         config = self._ctrl.build_translation_config(self._selected_model_label, self._models)
 
+        self._is_single_translating = True
+        self.singleTranslatingChanged.emit(True)
+
         def worker() -> None:
-            self._table.update_entry(xpath, "...", "translating")
+            self._table.update_entry(xpath, "…", "translating")
             result = self._ctrl.translate_single(xpath, config)
             self._ctrl.project.set_translation(xpath, result, status="done")
             self._table.update_entry(xpath, result, "done")
@@ -352,6 +384,8 @@ class AppViewModel(QObject):
             entry = self._ctrl.project.get_entry(xpath)
             if entry and self._selected_xpath == xpath:
                 self.entrySelected.emit(xpath, entry.original, result)
+            self._is_single_translating = False
+            self.singleTranslatingChanged.emit(False)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -394,25 +428,59 @@ class AppViewModel(QObject):
 
     @Slot(str, str)
     def loadXml(self, parent_tag: str, target_tag: str) -> None:
+        """
+        Open a file-picker, then inspect the XML structure to populate the
+        tag dropdowns.  Deliberately does NOT load entries into the table —
+        the user must choose parent + child tags and click Recarregar.
+        This avoids auto-loading huge files with irrelevant content.
+        """
         path, _ = QFileDialog.getOpenFileName(
             caption=self._i18n.get("select_xml_file"),
             filter="XML Files (*.xml);;All Files (*.*)",
         )
         if not path:
             return
-        self._load_xml(path, parent_tag, target_tag)
+
+        # Store chosen path and update filename label immediately.
+        self._xml_path_selected = path
+        self.xmlPathSelectedChanged.emit()
+        self.loadedFileNameChanged.emit()
+
+        # Reset pending tags so stale selections from a previous file don't carry over.
+        self._pending_parent_tag = ""
+        self._pending_target_tag = ""
+
+        # Detect repeating elements with text children → populate parent dropdown.
+        self._parent_tags = self._ctrl.get_parent_tags(path)
+        self.parentTagsChanged.emit()
+
+        # Clear child tags until user picks a parent.
+        self._child_tags = []
+        self.childTagsChanged.emit()
+
+        # Clear combo field values so user actively chooses.
+        self.selectedTagChanged.emit("", "")
 
     @Slot()
     def reloadXml(self) -> None:
-        if not self._ctrl.project.xml_path:
+        """Load entries using the currently selected path + tag settings."""
+        path = self._xml_path_selected or self._ctrl.project.xml_path
+        if not path:
             return
         parent = self._pending_parent_tag or self._ctrl.project.parent_tag
         target = self._pending_target_tag or self._ctrl.project.target_tag
-        self._load_xml(self._ctrl.project.xml_path, parent, target)
+        if not parent or not target:
+            # Nothing selected yet — don't attempt to load
+            self.logAppended.emit(self._i18n.get("log_select_tags_first",
+                                                  "Select parent and target tags before loading."))
+            return
+        self._load_xml(path, parent, target)
 
     def _load_xml(self, path: str, parent_tag: str, target_tag: str) -> None:
         sucesso, err = self._ctrl.load_xml(path, parent_tag, target_tag)
         if sucesso:
+            # Keep _xml_path_selected in sync with the successfully loaded path.
+            self._xml_path_selected = path
             self._table.refresh_all(self._ctrl.project.entries)
             count = len(self._ctrl.project.entries)
             done, total = self._ctrl.project.stats()
@@ -420,6 +488,15 @@ class AppViewModel(QObject):
             self.xmlLoaded.emit(count)
             self.entryCountChanged.emit(count)
             self.loadedFileNameChanged.emit()
+            self.xmlPathSelectedChanged.emit()
+            # Keep tag pickers in sync with what was actually loaded.
+            self._parent_tags = self._ctrl.get_parent_tags(path)
+            self.parentTagsChanged.emit()
+            self._pending_parent_tag = parent_tag
+            self._child_tags = self._ctrl.get_child_tags(path, parent_tag)
+            self._pending_target_tag = target_tag
+            self.childTagsChanged.emit()
+            self.selectedTagChanged.emit(parent_tag, target_tag)
             filename = os.path.basename(path)
             self.logAppended.emit(
                 self._i18n.get("log_load_success", filename=filename, count=count)
@@ -428,11 +505,44 @@ class AppViewModel(QObject):
             self.errorOccurred.emit(err)
             self.logAppended.emit(err)
 
+    @Slot()
+    def saveInPlace(self) -> None:
+        """Overwrite the currently loaded XML file with the translated content."""
+        path = self._ctrl.project.xml_path
+        if not path:
+            return
+        if self._ctrl.export_xml(path):
+            filename = os.path.basename(path)
+            self.logAppended.emit(self._i18n.get("log_saved_inplace", filename=filename))
+            # Clear the checkpoint after saving — it is no longer needed for
+            # resuming, and keeping it would block future retranslation passes.
+            self._ctrl.clear_checkpoint()
+            self._table.refresh_all(self._ctrl.project.entries)
+            self.progressChanged.emit(0, len(self._ctrl.project.entries))
+            self.entryCountChanged.emit(len(self._ctrl.project.entries))
+        else:
+            self.errorOccurred.emit(self._i18n.get("export_fail"))
+
+    @Slot()
+    def clearCheckpoint(self) -> None:
+        """Manually reset all translations to pending and delete the checkpoint file."""
+        count = self._ctrl.clear_checkpoint()
+        self._table.refresh_all(self._ctrl.project.entries)
+        done, total = self._ctrl.project.stats()
+        self.progressChanged.emit(done, total)
+        self.logAppended.emit(
+            self._i18n.get("log_checkpoint_cleared", count=count)
+        )
+
     @Slot(str)
     def exportXml(self, path: str) -> None:
         if not path:
+            # Pre-fill the dialog with the currently loaded filename so the user
+            # doesn't have to retype it (they can still rename before saving).
+            default = self._ctrl.project.xml_path or ""
             path, _ = QFileDialog.getSaveFileName(
                 caption=self._i18n.get("save_as"),
+                dir=default,
                 filter="XML Files (*.xml);;All Files (*.*)",
             )
         if path and self._ctrl.export_xml(path):
@@ -544,6 +654,16 @@ class AppViewModel(QObject):
 
     _pending_parent_tag: str = ""
     _pending_target_tag: str = ""
+
+    @Slot(str)
+    def selectParentTag(self, tag: str) -> None:
+        """Set parent tag and reload available child tags from the loaded XML."""
+        self._pending_parent_tag = tag
+        # Use _xml_path_selected so this works even before entries are loaded.
+        xml_path = self._xml_path_selected or self._ctrl.project.xml_path
+        if xml_path and tag:
+            self._child_tags = self._ctrl.get_child_tags(xml_path, tag)
+            self.childTagsChanged.emit()
 
     @Slot(str)
     def setParentTag(self, tag: str) -> None:

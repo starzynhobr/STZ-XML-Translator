@@ -140,6 +140,106 @@ class AppController:
         return list(AVAILABLE_SERVICES.keys())
 
     # ------------------------------------------------------------------
+    # XML tag introspection
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _strip_ns(tag: str) -> str:
+        """Remove XML namespace prefix: {http://...}name → name."""
+        return tag.split("}")[1] if "}" in tag else tag
+
+    def get_parent_tags(self, xml_path: str) -> list[str]:
+        """
+        Return tag names of REPEATING elements that have at least one child
+        with direct text content anywhere in the document.
+
+        A repeating element is one whose tag name appears more than once
+        under the same parent.  We then filter further to only include tags
+        where at least one occurrence contains a child element with non-empty
+        text — this excludes pure containers (e.g. <actionLevelStatuses>)
+        whose children are themselves containers, not leaf fields.
+
+          <data>
+            <baseVillains>           ← container (appears once → excluded)
+              <baseVillain> × N      ← repeating AND has text children → included
+                <bio>…</bio>
+              </baseVillain>
+            </baseVillains>
+            <heroes>
+              <hero> × M             ← also included
+              </hero>
+            </heroes>
+            <actionLevelStatuses>×K  ← repeating but no text children → excluded
+              <status>…</status>     ← (status itself is a sub-container)
+            </actionLevelStatuses>
+          </data>
+        """
+        import xml.etree.ElementTree as ET
+        from collections import Counter
+        try:
+            root = ET.parse(xml_path).getroot()
+            repeating: set[str] = set()
+
+            def _walk(element) -> None:
+                counts = Counter(self._strip_ns(c.tag) for c in element)
+                for tag, count in counts.items():
+                    if count > 1:
+                        repeating.add(tag)
+                for child in element:
+                    _walk(child)
+
+            _walk(root)
+
+            # Filter: keep only repeating tags whose occurrences contain at least
+            # one child element with non-empty text (i.e. actual leaf fields).
+            def _has_text_children(tag: str) -> bool:
+                for elem in root.iter(tag):
+                    for child in elem:
+                        if child.text and child.text.strip():
+                            return True
+                return False
+
+            result = [t for t in sorted(repeating) if _has_text_children(t)]
+            # Fallback: if the filter removes everything, return unfiltered list
+            # (better to show something than nothing).
+            return result if result else sorted(repeating)
+        except Exception:
+            return []
+
+    def get_child_tags(self, xml_path: str, parent_tag: str) -> list[str]:
+        """
+        Return unique child tag names that have non-empty text content inside
+        any occurrence of parent_tag in the document.
+
+        Prefers text-bearing children; falls back to all children if none have text.
+        """
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.parse(xml_path).getroot()
+
+            # Collect child tags with actual text content across ALL occurrences.
+            text_tags: set[str] = set()
+            all_tags: list[str] = []
+            all_seen: set[str] = set()
+
+            for parent in root.iter(parent_tag):
+                for child in parent:
+                    name = self._strip_ns(child.tag)
+                    if name not in all_seen:
+                        all_seen.add(name)
+                        all_tags.append(name)
+                    if child.text and child.text.strip():
+                        text_tags.add(name)
+
+            if text_tags:
+                # Return text-bearing tags in document order.
+                return [t for t in all_tags if t in text_tags]
+            # Fallback: return all child tags (first occurrence order).
+            return all_tags
+        except Exception:
+            return []
+
+    # ------------------------------------------------------------------
     # Locale / translation target
     # ------------------------------------------------------------------
 
@@ -224,6 +324,20 @@ class AppController:
             on_batch_start=on_batch_start,
         )
         self._worker.start()
+
+    def clear_checkpoint(self) -> int:
+        """
+        Delete the on-disk checkpoint file and reset all in-memory entry
+        translations to pending/empty. Returns the number of entries reset.
+        """
+        checkpoint = "textos_traduzidos_checkpoint.json"
+        try:
+            os.remove(checkpoint)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+        return self.project.reset_translations()
 
     def cancel_translation(self) -> None:
         if self._worker:

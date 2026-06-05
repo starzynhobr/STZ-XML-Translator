@@ -209,6 +209,26 @@ Pane {
             onClicked: vm.isTranslating ? vm.cancelTranslation() : vm.startBatchTranslation()
         }
 
+        // ---- Reset translations (small secondary action) ----
+        // Visible only when there are loaded entries and not currently translating.
+        Label {
+            visible: vm.entryCount > 0 && !vm.isTranslating
+            text: vm.strings["clear_checkpoint_button"] ?? "🔄 Reset Translation"
+            font.pixelSize: 11
+            color: Theme.textSecondary
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: -4   // pull closer to the button above
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                hoverEnabled: true
+                onEntered: parent.color = Theme.textPrimary
+                onExited:  parent.color = Theme.textSecondary
+                onClicked: vm.clearCheckpoint()
+            }
+        }
+
         // ---- Separator ----
         Rectangle { height: 1; color: Theme.borderModerate; Layout.fillWidth: true }
 
@@ -273,26 +293,55 @@ Pane {
         // ---- Suggest (selected item only) ----
         AppButton {
             id: suggestBtn
-            text: vm.strings["generate_suggestion_button"] ?? "Translate Selected (AI)"
+            text: vm.isSingleTranslating
+                  ? (vm.strings["translating_button"] ?? "Translating…")
+                  : (vm.strings["generate_suggestion_button"] ?? "Translate Selected (AI)")
             Layout.fillWidth: true
-            enabled: root.xpath !== ""
+            enabled: root.xpath !== "" && !vm.isSingleTranslating
             onClicked: vm.translateSelected()
 
             background: Rectangle {
-                color: suggestBtn.enabled
-                    ? (suggestBtn.hovered ? Theme.bgSurface3 : Theme.secondary)
-                    : Theme.bgBase
+                color: vm.isSingleTranslating
+                    ? Theme.bgSurface2
+                    : (suggestBtn.enabled
+                        ? (suggestBtn.hovered ? Theme.bgSurface3 : Theme.secondary)
+                        : Theme.bgBase)
                 radius: 4
-                border.color: suggestBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
-                border.width: 1
+                border.color: vm.isSingleTranslating
+                    ? Theme.primary
+                    : (suggestBtn.enabled ? Theme.borderModerate : Theme.borderSubtle)
+                border.width: vm.isSingleTranslating ? 2 : 1
                 Behavior on color { ColorAnimation { duration: 100 } }
             }
-            contentItem: Label {
-                text: suggestBtn.text
-                color: suggestBtn.enabled ? Theme.onSecondary : Theme.textDisabled
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-                font: suggestBtn.font
+            contentItem: Row {
+                spacing: 6
+                anchors.centerIn: parent
+
+                // Pulsing dot — only visible while translating
+                Rectangle {
+                    visible: vm.isSingleTranslating
+                    width: 8; height: 8; radius: 4
+                    color: Theme.primary
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    SequentialAnimation on opacity {
+                        running: vm.isSingleTranslating
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0.2; duration: 500; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1.0; duration: 500; easing.type: Easing.InOutSine }
+                    }
+                }
+
+                Label {
+                    text: suggestBtn.text
+                    color: vm.isSingleTranslating
+                        ? Theme.primary
+                        : (suggestBtn.enabled ? Theme.onSecondary : Theme.textDisabled)
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    font: suggestBtn.font
+                }
             }
         }
 

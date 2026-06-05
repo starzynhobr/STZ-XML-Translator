@@ -73,6 +73,15 @@ class TranslationProject:
     def get_pending_entries(self) -> list[TranslationEntry]:
         return [e for e in self.entries.values() if e.status != "done"]
 
+    def reset_translations(self) -> int:
+        """Reset every entry to pending/empty. Returns the number of entries reset."""
+        count = 0
+        for entry in self.entries.values():
+            entry.translation = ""
+            entry.status = "pending"
+            count += 1
+        return count
+
     def get_translations_map(self) -> dict[str, str]:
         """Returns {xpath: translation} for entries that have a non-empty translation."""
         return {e.xpath: e.translation for e in self.entries.values() if e.translation.strip()}

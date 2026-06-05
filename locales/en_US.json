@@ -83,5 +83,13 @@
     "log_api_key_saved": "API key saved.",
     "caption_save_json": "Save JSON",
     "caption_save_csv": "Save CSV",
-    "caption_import_csv": "Import CSV"
+    "caption_import_csv": "Import CSV",
+    "save_inplace_button": "💾 Save to Current File",
+    "save_inplace_confirm_title": "Overwrite Original File",
+    "save_inplace_confirm_message": "This will permanently replace the original file:\n\n{filename}\n\nThe file will remain loaded after saving. This action cannot be undone.",
+    "save_inplace_confirm_action": "Overwrite",
+    "log_saved_inplace": "File '{filename}' saved in place successfully.",
+    "clear_checkpoint_button": "🔄 Reset Translation",
+    "log_checkpoint_cleared": "{count} items marked as pending. Ready for a new translation pass.",
+    "log_select_tags_first": "Select the Parent Tag and Target Tag before loading."
 }

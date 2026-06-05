@@ -83,5 +83,13 @@
     "log_api_key_saved": "APIキーを保存しました。",
     "caption_save_json": "JSONを保存",
     "caption_save_csv": "CSVを保存",
-    "caption_import_csv": "CSVをインポート"
+    "caption_import_csv": "CSVをインポート",
+    "save_inplace_button": "💾 現在のファイルに上書き保存",
+    "save_inplace_confirm_title": "元のファイルを上書き",
+    "save_inplace_confirm_message": "この操作により、元のファイルが永久に置き換えられます：\n\n{filename}\n\n保存後もファイルは読み込まれたままになります。この操作は取り消せません。",
+    "save_inplace_confirm_action": "上書き",
+    "log_saved_inplace": "ファイル '{filename}' を上書き保存しました。",
+    "clear_checkpoint_button": "🔄 翻訳をリセット",
+    "log_checkpoint_cleared": "{count} 件のアイテムを未翻訳に戻しました。新しい翻訳を開始できます。",
+    "log_select_tags_first": "読み込む前に親タグとターゲットタグを選択してください。"
 }
