@@ -11,6 +11,15 @@ import sys
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "FluentWinUI3")
 os.environ.setdefault("QT_QUICK_CONTROLS_FLUENTWINUI3_THEME", "Dark")
 
+# On Windows, request dark-mode native decorations and menus (requires Win10 1809+).
+# darkmode=2 = force dark, regardless of the OS-wide light/dark setting.
+if sys.platform == "win32":
+    _plat = os.environ.get("QT_QPA_PLATFORM", "")
+    if "darkmode" not in _plat:
+        os.environ["QT_QPA_PLATFORM"] = (
+            (_plat + ":darkmode=2") if ("windows" in _plat) else "windows:darkmode=2"
+        )
+
 # High-DPI scaling (Qt 6 handles this automatically, but ensure it's on)
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
 
@@ -36,6 +45,54 @@ def _resolve(relative: str) -> str:
     return os.path.join(base, relative)
 
 
+def _apply_dark_palette(app) -> None:
+    """
+    Set a dark QPalette on the QApplication so that native/system widgets
+    (context menus, tooltips, scroll bars) respect the dark theme instead
+    of inheriting the OS light palette and rendering white-on-white.
+    """
+    from PySide6.QtGui import QColor, QPalette
+
+    p = QPalette()
+
+    def c(hex_: str) -> QColor:
+        return QColor(hex_)
+
+    # Active / Normal group
+    p.setColor(QPalette.ColorRole.Window,          c("#181818"))
+    p.setColor(QPalette.ColorRole.WindowText,      c("#f0f0f0"))
+    p.setColor(QPalette.ColorRole.Base,            c("#2b2b2b"))
+    p.setColor(QPalette.ColorRole.AlternateBase,   c("#232323"))
+    p.setColor(QPalette.ColorRole.Text,            c("#f0f0f0"))
+    p.setColor(QPalette.ColorRole.BrightText,      c("#ffffff"))
+    p.setColor(QPalette.ColorRole.Button,          c("#3a3a3a"))
+    p.setColor(QPalette.ColorRole.ButtonText,      c("#f0f0f0"))
+    p.setColor(QPalette.ColorRole.Highlight,       c("#0078d4"))
+    p.setColor(QPalette.ColorRole.HighlightedText, c("#ffffff"))
+    p.setColor(QPalette.ColorRole.ToolTipBase,     c("#2b2b2b"))
+    p.setColor(QPalette.ColorRole.ToolTipText,     c("#f0f0f0"))
+    p.setColor(QPalette.ColorRole.PlaceholderText, c("#666666"))
+    p.setColor(QPalette.ColorRole.Link,            c("#0078d4"))
+    p.setColor(QPalette.ColorRole.LinkVisited,     c("#5c9fd4"))
+    # Borders / shadows
+    p.setColor(QPalette.ColorRole.Light,           c("#3a3a3a"))
+    p.setColor(QPalette.ColorRole.Midlight,        c("#2f2f2f"))
+    p.setColor(QPalette.ColorRole.Mid,             c("#252525"))
+    p.setColor(QPalette.ColorRole.Dark,            c("#181818"))
+    p.setColor(QPalette.ColorRole.Shadow,          c("#000000"))
+
+    # Disabled group — dimmed versions of the above
+    for role, hex_ in [
+        (QPalette.ColorRole.WindowText, "#666666"),
+        (QPalette.ColorRole.Text,       "#666666"),
+        (QPalette.ColorRole.ButtonText, "#666666"),
+        (QPalette.ColorRole.Base,       "#1e1e1e"),
+    ]:
+        p.setColor(QPalette.ColorGroup.Disabled, role, c(hex_))
+
+    app.setPalette(p)
+
+
 def main() -> int:
     from PySide6.QtGui import QIcon
     from PySide6.QtQml import QQmlApplicationEngine
@@ -45,6 +102,42 @@ def main() -> int:
     app.setApplicationName("Game XML Translator")
     app.setApplicationVersion("1.2.0")
     app.setOrganizationName("GameXMLTranslator")
+
+    # Apply dark palette before loading QML so all native widgets/menus
+    # (right-click context menus, tooltips, etc.) inherit dark colours.
+    _apply_dark_palette(app)
+
+    # QSS fallback: style QWidget-based menus/tooltips that may bypass QPalette.
+    app.setStyleSheet("""
+        QMenu {
+            background-color: #2b2b2b;
+            color: #f0f0f0;
+            border: 1px solid #444444;
+            padding: 2px;
+        }
+        QMenu::item {
+            padding: 6px 28px 6px 12px;
+            border-radius: 3px;
+        }
+        QMenu::item:selected {
+            background-color: #0078d4;
+            color: #ffffff;
+        }
+        QMenu::item:disabled {
+            color: #666666;
+        }
+        QMenu::separator {
+            height: 1px;
+            background-color: #444444;
+            margin: 3px 8px;
+        }
+        QToolTip {
+            background-color: #2b2b2b;
+            color: #f0f0f0;
+            border: 1px solid #555555;
+            padding: 4px;
+        }
+    """)
 
     icon_path = _resolve(os.path.join("assets", "icon.ico"))
     if os.path.exists(icon_path):

@@ -17,6 +17,7 @@ TRANSLATION_TARGETS: dict[str, dict[str, str]] = {
 }
 
 CONFIG_FILE = "config.json"
+PRESETS_FILE = "tag_presets.json"
 
 PROVIDER_URLS: dict[str, str] = {
     "Gemini": "https://aistudio.google.com/app/apikey",
@@ -379,3 +380,50 @@ class AppController:
 
     def import_csv(self, path: str) -> int:
         return self.project.import_csv(path)
+
+    # ------------------------------------------------------------------
+    # Tag presets
+    # ------------------------------------------------------------------
+
+    def get_tag_presets(self) -> list[dict]:
+        """Load all saved tag presets from disk. Returns [] if none exist."""
+        try:
+            if not os.path.exists(PRESETS_FILE):
+                return []
+            with open(PRESETS_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("presets", [])
+        except (OSError, json.JSONDecodeError):
+            return []
+
+    def save_tag_preset(
+        self,
+        label: str,
+        parent_tag: str,
+        target_tag: str,
+        file: str = "",
+    ) -> bool:
+        """Append a new preset and persist to disk. Returns True on success."""
+        import time
+        presets = self.get_tag_presets()
+        presets.append({
+            "id": int(time.time() * 1000),
+            "label": label,
+            "parent_tag": parent_tag,
+            "target_tag": target_tag,
+            "file": file,
+        })
+        return self._write_presets(presets)
+
+    def delete_tag_preset(self, preset_id: int) -> bool:
+        """Remove the preset with the given id. Returns True on success."""
+        presets = [p for p in self.get_tag_presets() if p.get("id") != preset_id]
+        return self._write_presets(presets)
+
+    def _write_presets(self, presets: list[dict]) -> bool:
+        try:
+            with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+                json.dump({"presets": presets}, f, indent=2, ensure_ascii=False)
+            return True
+        except OSError:
+            return False

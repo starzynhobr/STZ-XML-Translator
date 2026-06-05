@@ -91,5 +91,19 @@
     "log_saved_inplace": "File '{filename}' saved in place successfully.",
     "clear_checkpoint_button": "🔄 Reset Translation",
     "log_checkpoint_cleared": "{count} items marked as pending. Ready for a new translation pass.",
-    "log_select_tags_first": "Select the Parent Tag and Target Tag before loading."
+    "log_select_tags_first": "Select the Parent Tag and Target Tag before loading.",
+    "save_preset_button": "💾 Save Preset",
+    "load_preset_button": "📂 Load Preset",
+    "save_preset_title": "Save Tag Preset",
+    "load_preset_title": "Tag Presets",
+    "preset_label_field": "Description *",
+    "preset_label_placeholder": "e.g. Hero Biographies",
+    "preset_file_field": "File (optional)",
+    "preset_file_placeholder": "e.g. characters.xml",
+    "save_preset_save_button": "Save",
+    "preset_apply_button": "Apply",
+    "no_presets_label": "No presets saved yet.",
+    "log_preset_saved": "Preset '{label}' saved.",
+    "log_preset_deleted": "Preset removed.",
+    "log_preset_applied": "Preset '{label}' applied."
 }

@@ -91,5 +91,19 @@
     "log_saved_inplace": "Archivo '{filename}' guardado en su lugar correctamente.",
     "clear_checkpoint_button": "🔄 Reiniciar Traducción",
     "log_checkpoint_cleared": "{count} elementos marcados como pendientes. Listo para nueva traducción.",
-    "log_select_tags_first": "Selecciona la Etiqueta Padre y la Etiqueta Objetivo antes de cargar."
+    "log_select_tags_first": "Selecciona la Etiqueta Padre y la Etiqueta Objetivo antes de cargar.",
+    "save_preset_button": "💾 Guardar Preset",
+    "load_preset_button": "📂 Cargar Preset",
+    "save_preset_title": "Guardar Preset de Etiquetas",
+    "load_preset_title": "Presets de Etiquetas",
+    "preset_label_field": "Descripción *",
+    "preset_label_placeholder": "ej: Biografías de Héroes",
+    "preset_file_field": "Archivo (opcional)",
+    "preset_file_placeholder": "ej: characters.xml",
+    "save_preset_save_button": "Guardar",
+    "preset_apply_button": "Aplicar",
+    "no_presets_label": "No hay presets guardados.",
+    "log_preset_saved": "Preset '{label}' guardado.",
+    "log_preset_deleted": "Preset eliminado.",
+    "log_preset_applied": "Preset '{label}' aplicado."
 }

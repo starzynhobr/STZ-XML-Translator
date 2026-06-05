@@ -91,5 +91,19 @@
     "log_saved_inplace": "ファイル '{filename}' を上書き保存しました。",
     "clear_checkpoint_button": "🔄 翻訳をリセット",
     "log_checkpoint_cleared": "{count} 件のアイテムを未翻訳に戻しました。新しい翻訳を開始できます。",
-    "log_select_tags_first": "読み込む前に親タグとターゲットタグを選択してください。"
+    "log_select_tags_first": "読み込む前に親タグとターゲットタグを選択してください。",
+    "save_preset_button": "💾 プリセット保存",
+    "load_preset_button": "📂 プリセット読込",
+    "save_preset_title": "タグプリセットを保存",
+    "load_preset_title": "タグプリセット",
+    "preset_label_field": "説明 *",
+    "preset_label_placeholder": "例: ヒーローの伝記",
+    "preset_file_field": "ファイル（任意）",
+    "preset_file_placeholder": "例: characters.xml",
+    "save_preset_save_button": "保存",
+    "preset_apply_button": "適用",
+    "no_presets_label": "保存されたプリセットはありません。",
+    "log_preset_saved": "プリセット「{label}」を保存しました。",
+    "log_preset_deleted": "プリセットを削除しました。",
+    "log_preset_applied": "プリセット「{label}」を適用しました。"
 }

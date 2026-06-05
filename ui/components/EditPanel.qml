@@ -47,6 +47,7 @@ Pane {
             model: vm.providers
             currentIndex: vm.providers.indexOf(vm.selectedProvider)
             Layout.fillWidth: true
+            enabled: !vm.isTranslating
             onActivated: vm.selectProvider(currentText)
 
             contentItem: Text {
@@ -90,6 +91,7 @@ Pane {
         ComboBox {
             id: modelCombo
             visible: vm.selectedProvider === "Gemini"
+            enabled: !vm.isTranslating
             model: vm.modelLabels
             currentIndex: vm.selectedModelIndex
             Layout.fillWidth: true
@@ -147,6 +149,7 @@ Pane {
         TextField {
             id: ollamaModelField
             visible: vm.selectedProvider === "Ollama (Local)"
+            enabled: !vm.isTranslating
             text: vm.ollamaModel
             placeholderText: "llama3"
             Layout.fillWidth: true
@@ -165,6 +168,7 @@ Pane {
         // ---- API Key (hidden for Ollama) ----
         AppButton {
             visible: vm.providerNeedsApiKey
+            enabled: !vm.isTranslating
             text: vm.strings["api_key_config"] ?? "API Key"
             Layout.fillWidth: true
             onClicked: vm.configureApiKey()

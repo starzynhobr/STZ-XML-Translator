@@ -33,6 +33,7 @@ Pane {
             AppButton {
                 text: vm.strings["load_xml_button"] ?? "Load XML"
                 highlighted: true
+                enabled: !vm.isTranslating
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.topMargin: 16
@@ -96,8 +97,8 @@ Pane {
 
                 AppButton { text: vm.strings["export_json_button"] ?? "Export JSON"; Layout.fillWidth: true; font.pixelSize: 12; onClicked: vm.exportJson("") }
                 AppButton { text: vm.strings["export_csv_button"]  ?? "Export CSV";  Layout.fillWidth: true; font.pixelSize: 12; onClicked: vm.exportCsv("")  }
-                AppButton { text: vm.strings["import_json_button"] ?? "Import JSON"; Layout.fillWidth: true; font.pixelSize: 12; onClicked: vm.importJson("") }
-                AppButton { text: vm.strings["import_csv_button"]  ?? "Import CSV";  Layout.fillWidth: true; font.pixelSize: 12; onClicked: vm.importCsv("")  }
+                AppButton { text: vm.strings["import_json_button"] ?? "Import JSON"; Layout.fillWidth: true; font.pixelSize: 12; enabled: !vm.isTranslating; onClicked: vm.importJson("") }
+                AppButton { text: vm.strings["import_csv_button"]  ?? "Import CSV";  Layout.fillWidth: true; font.pixelSize: 12; enabled: !vm.isTranslating; onClicked: vm.importCsv("")  }
             }
 
             // ---- Separador ----
@@ -193,14 +194,76 @@ Pane {
                 onCommitted: function(tag) { vm.setTargetTag(tag) }
             }
 
+            // ---- Preset action row ----
+            Row {
+                Layout.fillWidth: true
+                Layout.leftMargin: 16; Layout.rightMargin: 16
+                Layout.bottomMargin: 6
+                spacing: 6
+
+                // Save current tag pair as a named preset
+                AppButton {
+                    id: savePresetBtn
+                    text: vm.strings["save_preset_button"] ?? "💾 Salvar Preset"
+                    width: (parent.width - parent.spacing) / 2
+                    enabled: vm.hasXmlPath && parentTagCombo.value !== "" && targetTagCombo.value !== ""
+                    font.pixelSize: 11
+                    onClicked: {
+                        savePresetLabelField.text = ""
+                        savePresetFileField.text = vm.loadedFileName
+                        savePresetDialog.open()
+                    }
+                    background: Rectangle {
+                        color: savePresetBtn.enabled
+                            ? (savePresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
+                            : Theme.bgBase
+                        radius: 4
+                        border.color: savePresetBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: savePresetBtn.text
+                        color: savePresetBtn.enabled ? Theme.textPrimary : Theme.textDisabled
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font: savePresetBtn.font
+                        elide: Text.ElideRight
+                    }
+                }
+
+                // Browse and apply saved presets
+                AppButton {
+                    id: loadPresetBtn
+                    text: vm.strings["load_preset_button"] ?? "📂 Carregar Preset"
+                    width: (parent.width - parent.spacing) / 2
+                    font.pixelSize: 11
+                    onClicked: loadPresetDialog.open()
+                    background: Rectangle {
+                        color: loadPresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                        radius: 4
+                        border.color: Theme.borderModerate
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: loadPresetBtn.text
+                        color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font: loadPresetBtn.font
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
             AppButton {
                 id: reloadBtn
                 text: vm.strings["reload_button"] ?? "Reload"
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.bottomMargin: 16
-                // Enable as soon as a file is selected; validation happens in reloadXml().
-                enabled: vm.hasXmlPath
+                enabled: vm.hasXmlPath && !vm.isTranslating
                 onClicked: vm.reloadXml()
 
                 background: Rectangle {
@@ -276,7 +339,7 @@ Pane {
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.bottomMargin: 8
-                enabled: root.progressDone > 0
+                enabled: root.progressDone > 0 && !vm.isTranslating
                 onClicked: vm.exportXml("")
 
                 background: Rectangle {
@@ -312,7 +375,7 @@ Pane {
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.bottomMargin: 16
-                enabled: vm.entryCount > 0
+                enabled: vm.entryCount > 0 && !vm.isTranslating
                 onClicked: overwriteDialog.open()
 
                 background: Rectangle {
@@ -455,6 +518,316 @@ Pane {
                         verticalAlignment: Text.AlignVCenter
                         font.weight: Font.Medium
                         font.pixelSize: 13
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Save Preset Dialog ────────────────────────────────────────────────────
+    Dialog {
+        id: savePresetDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 360
+        padding: 0
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.bgSurface2; radius: 8
+            border.color: Theme.borderModerate; border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // ── Header
+            Item {
+                Layout.fillWidth: true; implicitHeight: 52
+                Label {
+                    anchors { left: parent.left; right: parent.right
+                              verticalCenter: parent.verticalCenter
+                              leftMargin: 20; rightMargin: 20 }
+                    text: vm.strings["save_preset_title"] ?? "Salvar Preset de Tags"
+                    font.pixelSize: 14; font.weight: Font.DemiBold
+                    color: Theme.textPrimary; elide: Text.ElideRight
+                }
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
+            }
+
+            // ── Body
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.margins: 20
+                spacing: 10
+
+                // Current tag pair info
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 32; radius: 4
+                    color: Theme.bgSurface1
+                    border.color: Theme.borderSubtle; border.width: 1
+                    Label {
+                        anchors { left: parent.left; right: parent.right
+                                  verticalCenter: parent.verticalCenter
+                                  leftMargin: 10; rightMargin: 10 }
+                        text: parentTagCombo.value + "  →  " + targetTagCombo.value
+                        font.pixelSize: 12; font.weight: Font.Medium
+                        color: Theme.primary; elide: Text.ElideRight
+                    }
+                }
+
+                // Description field (required)
+                Label {
+                    text: vm.strings["preset_label_field"] ?? "Descrição *"
+                    font.pixelSize: 11; color: Theme.textSecondary
+                }
+                TextField {
+                    id: savePresetLabelField
+                    Layout.fillWidth: true
+                    placeholderText: vm.strings["preset_label_placeholder"] ?? "ex: Biografia dos Heróis"
+                    color: Theme.textInput
+                    placeholderTextColor: Theme.textPlaceholder
+                    font.pixelSize: 13
+                    background: Rectangle {
+                        color: Theme.bgInput; radius: 4
+                        border.color: parent.activeFocus ? Theme.borderFocus : Theme.borderInput
+                        border.width: parent.activeFocus ? 2 : 1
+                    }
+                }
+
+                // File field (optional)
+                Label {
+                    text: vm.strings["preset_file_field"] ?? "Arquivo (opcional)"
+                    font.pixelSize: 11; color: Theme.textSecondary
+                }
+                TextField {
+                    id: savePresetFileField
+                    Layout.fillWidth: true
+                    placeholderText: vm.strings["preset_file_placeholder"] ?? "ex: characters.xml"
+                    color: Theme.textInput
+                    placeholderTextColor: Theme.textPlaceholder
+                    font.pixelSize: 13
+                    background: Rectangle {
+                        color: Theme.bgInput; radius: 4
+                        border.color: parent.activeFocus ? Theme.borderFocus : Theme.borderInput
+                        border.width: parent.activeFocus ? 2 : 1
+                    }
+                }
+            }
+
+            // ── Footer
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
+            Row {
+                Layout.alignment: Qt.AlignRight
+                Layout.rightMargin: 16; Layout.topMargin: 12; Layout.bottomMargin: 12
+                spacing: 8
+
+                AppButton {
+                    text: vm.strings["close_button"] ?? "Fechar"
+                    onClicked: savePresetDialog.close()
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                        radius: 4; border.color: Theme.borderModerate; border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text; color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter; font: parent.font
+                    }
+                }
+
+                AppButton {
+                    text: vm.strings["save_preset_save_button"] ?? "Salvar"
+                    enabled: savePresetLabelField.text.trim() !== ""
+                    onClicked: {
+                        vm.saveTagPreset(
+                            savePresetLabelField.text.trim(),
+                            parentTagCombo.value,
+                            targetTagCombo.value,
+                            savePresetFileField.text.trim()
+                        )
+                        savePresetDialog.close()
+                    }
+                    background: Rectangle {
+                        color: parent.enabled
+                            ? (parent.hovered ? Theme.primaryHover : Theme.primary)
+                            : Theme.bgBase
+                        radius: 4
+                        border.color: parent.enabled ? "transparent" : Theme.borderSubtle
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text
+                        color: parent.enabled ? Theme.onPrimary : Theme.textDisabled
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.weight: Font.Medium; font.pixelSize: 13
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Load Preset Dialog ────────────────────────────────────────────────────
+    Dialog {
+        id: loadPresetDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 400
+        padding: 0
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.bgSurface2; radius: 8
+            border.color: Theme.borderModerate; border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // ── Header
+            Item {
+                Layout.fillWidth: true; implicitHeight: 52
+                Label {
+                    anchors { left: parent.left; right: parent.right
+                              verticalCenter: parent.verticalCenter
+                              leftMargin: 20; rightMargin: 20 }
+                    text: vm.strings["load_preset_title"] ?? "Presets de Tags"
+                    font.pixelSize: 14; font.weight: Font.DemiBold
+                    color: Theme.textPrimary; elide: Text.ElideRight
+                }
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
+            }
+
+            // ── Body — preset list
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: Math.min(Math.max(vm.tagPresets.length, 1) * 68 + 16, 340)
+
+                // Empty state
+                Label {
+                    visible: vm.tagPresets.length === 0
+                    anchors.centerIn: parent
+                    text: vm.strings["no_presets_label"] ?? "Nenhum preset salvo."
+                    font.pixelSize: 13; color: Theme.textSecondary
+                }
+
+                ListView {
+                    visible: vm.tagPresets.length > 0
+                    anchors { fill: parent; margins: 8 }
+                    model: vm.tagPresets
+                    clip: true
+                    spacing: 4
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    delegate: Rectangle {
+                        width: ListView.view.width
+                        height: 60
+                        radius: 6
+                        color: Theme.bgSurface1
+                        border.color: Theme.borderSubtle; border.width: 1
+
+                        RowLayout {
+                            anchors { fill: parent; leftMargin: 12; rightMargin: 8; topMargin: 6; bottomMargin: 6 }
+                            spacing: 8
+
+                            // Info column
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: modelData.label ?? ""
+                                    font.pixelSize: 12; font.weight: Font.Medium
+                                    color: Theme.textPrimary; elide: Text.ElideRight
+                                }
+                                RowLayout {
+                                    spacing: 6
+                                    Label {
+                                        text: (modelData.parent_tag ?? "") + " → " + (modelData.target_tag ?? "")
+                                        font.pixelSize: 11; color: Theme.primary
+                                    }
+                                    Label {
+                                        visible: (modelData.file ?? "") !== ""
+                                        text: "• " + (modelData.file ?? "")
+                                        font.pixelSize: 10; color: Theme.textSecondary
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            // Apply button
+                            AppButton {
+                                text: vm.strings["preset_apply_button"] ?? "Aplicar"
+                                font.pixelSize: 11
+                                implicitWidth: 60; implicitHeight: 28
+                                onClicked: {
+                                    vm.applyTagPreset(
+                                        modelData.label ?? "",
+                                        modelData.parent_tag ?? "",
+                                        modelData.target_tag ?? ""
+                                    )
+                                    loadPresetDialog.close()
+                                }
+                                background: Rectangle {
+                                    color: parent.hovered ? Theme.primaryHover : Theme.primary
+                                    radius: 4
+                                    Behavior on color { ColorAnimation { duration: 100 } }
+                                }
+                                contentItem: Label {
+                                    text: parent.text; color: Theme.onPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    font.pixelSize: 11
+                                }
+                            }
+
+                            // Delete button
+                            AppButton {
+                                text: "🗑"
+                                font.pixelSize: 13
+                                implicitWidth: 30; implicitHeight: 28
+                                onClicked: vm.deleteTagPreset(modelData.id ?? 0)
+                                background: Rectangle {
+                                    color: parent.hovered ? Theme.dangerHover : "transparent"
+                                    radius: 4
+                                    border.color: parent.hovered ? "transparent" : Theme.borderSubtle
+                                    border.width: 1
+                                    Behavior on color { ColorAnimation { duration: 100 } }
+                                }
+                                contentItem: Label {
+                                    text: parent.text
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Footer
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
+            Row {
+                Layout.alignment: Qt.AlignRight
+                Layout.rightMargin: 16; Layout.topMargin: 12; Layout.bottomMargin: 12
+
+                AppButton {
+                    text: vm.strings["close_button"] ?? "Fechar"
+                    onClicked: loadPresetDialog.close()
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                        radius: 4; border.color: Theme.borderModerate; border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text; color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter; font: parent.font
                     }
                 }
             }

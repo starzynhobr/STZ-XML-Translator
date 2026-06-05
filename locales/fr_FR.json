@@ -91,5 +91,19 @@
     "log_saved_inplace": "Fichier '{filename}' enregistré sur place avec succès.",
     "clear_checkpoint_button": "🔄 Réinitialiser la Traduction",
     "log_checkpoint_cleared": "{count} éléments marqués comme en attente. Prêt pour une nouvelle traduction.",
-    "log_select_tags_first": "Sélectionnez la balise parente et la balise cible avant de charger."
+    "log_select_tags_first": "Sélectionnez la balise parente et la balise cible avant de charger.",
+    "save_preset_button": "💾 Sauvegarder Preset",
+    "load_preset_button": "📂 Charger Preset",
+    "save_preset_title": "Sauvegarder un Preset de Balises",
+    "load_preset_title": "Presets de Balises",
+    "preset_label_field": "Description *",
+    "preset_label_placeholder": "ex : Biographies des Héros",
+    "preset_file_field": "Fichier (optionnel)",
+    "preset_file_placeholder": "ex : characters.xml",
+    "save_preset_save_button": "Sauvegarder",
+    "preset_apply_button": "Appliquer",
+    "no_presets_label": "Aucun preset sauvegardé.",
+    "log_preset_saved": "Preset « {label} » sauvegardé.",
+    "log_preset_deleted": "Preset supprimé.",
+    "log_preset_applied": "Preset « {label} » appliqué."
 }

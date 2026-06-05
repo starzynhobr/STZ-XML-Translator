@@ -108,6 +108,14 @@ class TranslationWorker:
                 )
 
                 results = self._translate_batch_gemini(batch)
+
+                # Check cancel immediately after the blocking API call returns —
+                # the user may have clicked Cancel while waiting for the response.
+                if self._cancel_event.is_set():
+                    self._on_log("Tradução cancelada pelo usuário.")
+                    self._on_done()
+                    return
+
                 if results is None:
                     self._on_log("Falha no lote — interrompendo tradução.")
                     break
@@ -155,7 +163,13 @@ class TranslationWorker:
             self._on_log(f"Lote concluído. Total traduzido: {done}")
 
             if i + self.BATCH_SIZE < total:
-                time.sleep(self.BATCH_DELAY_SECONDS)
+                # Use wait() instead of sleep() so cancel during the inter-batch
+                # pause takes effect immediately instead of waiting the full delay.
+                cancelled = self._cancel_event.wait(timeout=self.BATCH_DELAY_SECONDS)
+                if cancelled:
+                    self._on_log("Tradução cancelada pelo usuário.")
+                    self._on_done()
+                    return
 
         self._on_log("Tradução em lote finalizada.")
         self._on_done()

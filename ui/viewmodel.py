@@ -125,6 +125,7 @@ class AppViewModel(QObject):
     childTagsChanged = Signal()
     selectedTagChanged = Signal(str, str)   # (parent_tag, target_tag)
     xmlPathSelectedChanged = Signal()        # fired when a file is chosen (before entries load)
+    tagPresetsChanged = Signal()             # fired when the preset list changes
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -200,6 +201,11 @@ class AppViewModel(QObject):
     @QProperty(list, notify=childTagsChanged)
     def childTags(self) -> list:
         return self._child_tags
+
+    @QProperty(list, notify=tagPresetsChanged)
+    def tagPresets(self) -> list:
+        """List of preset dicts: {id, label, parent_tag, target_tag, file}."""
+        return self._ctrl.get_tag_presets()
 
     # ------------------------------------------------------------------
     # Properties — models (Gemini)
@@ -507,19 +513,25 @@ class AppViewModel(QObject):
 
     @Slot()
     def saveInPlace(self) -> None:
-        """Overwrite the currently loaded XML file with the translated content."""
+        """
+        Overwrite the currently loaded XML file with the translated content,
+        then immediately reload it so the table reflects the new state:
+        the formerly-translated text becomes the new 'original', ready for
+        a follow-up translation pass if needed.
+        """
         path = self._ctrl.project.xml_path
+        parent_tag = self._ctrl.project.parent_tag
+        target_tag = self._ctrl.project.target_tag
         if not path:
             return
         if self._ctrl.export_xml(path):
             filename = os.path.basename(path)
             self.logAppended.emit(self._i18n.get("log_saved_inplace", filename=filename))
-            # Clear the checkpoint after saving — it is no longer needed for
-            # resuming, and keeping it would block future retranslation passes.
+            # Clear the checkpoint — no longer needed after saving.
             self._ctrl.clear_checkpoint()
-            self._table.refresh_all(self._ctrl.project.entries)
-            self.progressChanged.emit(0, len(self._ctrl.project.entries))
-            self.entryCountChanged.emit(len(self._ctrl.project.entries))
+            # Reload from the freshly-written file so the UI shows the new
+            # content as the original text (translations column starts empty).
+            self._load_xml(path, parent_tag, target_tag)
         else:
             self.errorOccurred.emit(self._i18n.get("export_fail"))
 
@@ -672,6 +684,41 @@ class AppViewModel(QObject):
     @Slot(str)
     def setTargetTag(self, tag: str) -> None:
         self._pending_target_tag = tag
+
+    # ------------------------------------------------------------------
+    # Slots — tag presets
+    # ------------------------------------------------------------------
+
+    @Slot(str, str, str, str)
+    def saveTagPreset(self, label: str, parent_tag: str, target_tag: str, file: str) -> None:
+        """Persist a new preset and notify QML."""
+        ok = self._ctrl.save_tag_preset(label.strip(), parent_tag, target_tag, file.strip())
+        if ok:
+            self.tagPresetsChanged.emit()
+            self.logAppended.emit(
+                self._i18n.get("log_preset_saved", label=label.strip())
+            )
+
+    @Slot(int)
+    def deleteTagPreset(self, preset_id: int) -> None:
+        """Remove a preset by id."""
+        self._ctrl.delete_tag_preset(preset_id)
+        self.tagPresetsChanged.emit()
+        self.logAppended.emit(self._i18n.get("log_preset_deleted"))
+
+    @Slot(str, str, str)
+    def applyTagPreset(self, label: str, parent_tag: str, target_tag: str) -> None:
+        """Apply a preset: fill combos and reload child tags if XML is loaded."""
+        self._pending_parent_tag = parent_tag
+        self._pending_target_tag = target_tag
+        xml_path = self._xml_path_selected or self._ctrl.project.xml_path
+        if xml_path and parent_tag:
+            self._child_tags = self._ctrl.get_child_tags(xml_path, parent_tag)
+            self.childTagsChanged.emit()
+        self.selectedTagChanged.emit(parent_tag, target_tag)
+        self.logAppended.emit(
+            self._i18n.get("log_preset_applied", label=label)
+        )
 
     # ------------------------------------------------------------------
     # Internal

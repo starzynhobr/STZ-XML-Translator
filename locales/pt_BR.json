@@ -100,5 +100,19 @@
     "log_saved_inplace": "Arquivo '{filename}' salvo com sucesso (no lugar).",
     "clear_checkpoint_button": "🔄 Reiniciar Tradução",
     "log_checkpoint_cleared": "{count} itens marcados como pendentes. Pronto para nova tradução.",
-    "log_select_tags_first": "Selecione a Tag Pai e a Tag Alvo antes de carregar."
+    "log_select_tags_first": "Selecione a Tag Pai e a Tag Alvo antes de carregar.",
+    "save_preset_button": "💾 Salvar Preset",
+    "load_preset_button": "📂 Carregar Preset",
+    "save_preset_title": "Salvar Preset de Tags",
+    "load_preset_title": "Presets de Tags",
+    "preset_label_field": "Descrição *",
+    "preset_label_placeholder": "ex: Biografia dos Heróis",
+    "preset_file_field": "Arquivo (opcional)",
+    "preset_file_placeholder": "ex: characters.xml",
+    "save_preset_save_button": "Salvar",
+    "preset_apply_button": "Aplicar",
+    "no_presets_label": "Nenhum preset salvo ainda.",
+    "log_preset_saved": "Preset '{label}' salvo.",
+    "log_preset_deleted": "Preset removido.",
+    "log_preset_applied": "Preset '{label}' aplicado."
 }
