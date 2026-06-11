@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 
 from core.project import TranslationProject
-from core.tradutor_api import get_gemini_model, translate_text
+from core.tradutor_api import get_gemini_model, translate_batch_ollama, translate_text
 
 
 class TranslationWorker:
@@ -133,19 +133,45 @@ class TranslationWorker:
                     self._on_log(f"AVISO: {skipped} item(ns) pulados pela IA neste lote.")
 
             else:
-                # Sequential providers (DeepL, Azure, Ollama): translate one at a
-                # time and emit immediately so the table updates row-by-row.
+                # Ollama uses mini-batches of up to 15 short texts per request
+                # to amortise per-call overhead. Falls back to sequential when
+                # a text is long (>= 400 chars) or the batch response is unparseable.
+                # DeepL and Azure always use the sequential path.
+                OLLAMA_MINI = 15
+                OLLAMA_MAX_LEN = 400
+
                 failed = False
-                for entry in batch:
+                idx = 0
+                while idx < len(batch):
                     if self._cancel_event.is_set():
                         self._on_log("Tradução cancelada pelo usuário.")
                         self._on_done()
                         return
 
-                    # Mark this single row yellow before the API call.
+                    if service == "Ollama (Local)":
+                        mini = batch[idx : idx + OLLAMA_MINI]
+                        if all(len(e.original) < OLLAMA_MAX_LEN for e in mini):
+                            if self._on_batch_start:
+                                self._on_batch_start([e.xpath for e in mini])
+                            if len(mini) > 1:
+                                self._on_log(f"Mini-lote Ollama: {len(mini)} itens…")
+                            results = translate_batch_ollama(mini, self._config)
+                            if results is not None:
+                                for entry in mini:
+                                    text = results.get(entry.xpath, "")
+                                    if text:
+                                        project.set_translation(entry.xpath, text, status="done")
+                                        self._on_entry_translated(entry.xpath, text)
+                                idx += len(mini)
+                                continue
+                            # Batch parse failed — fall through to single-item for this entry
+                            if len(mini) > 1:
+                                self._on_log("Mini-lote falhou — tentando item a item.")
+
+                    # Single-item path (DeepL, Azure, or Ollama fallback)
+                    entry = batch[idx]
                     if self._on_batch_start:
                         self._on_batch_start([entry.xpath])
-
                     try:
                         text = translate_text(service, entry.original, self._config)
                         project.set_translation(entry.xpath, text, status="done")
@@ -154,6 +180,7 @@ class TranslationWorker:
                         self._on_log(f"ERRO na API: {exc}")
                         failed = True
                         break
+                    idx += 1
 
                 if failed:
                     break
@@ -183,10 +210,13 @@ class TranslationWorker:
                 api_key=self._config.get("api_key", ""),
             )
             target_label = self._config.get("target_label", "Portuguese (Brazil)")
+            ctx = (self._config.get("translation_context") or "").strip()
+            context_line = f"Context: {ctx}\n" if ctx else ""
             prompt = (
                 "Act as a game localization specialist.\n"
+                f"{context_line}"
                 "Each entry below is formatted as [ID: ...] followed by text.\n"
-                f"Translate every entry to {target_label}. Keep the IDs and separators exactly as provided.\n\n"
+                f"Translate every entry to {target_label}. Keep proper nouns and character names that should not be translated. Keep the IDs and separators exactly as provided.\n\n"
                 "---BEGIN BLOCK---\n"
                 f"{batch_text}\n"
                 "---END BLOCK---\n"

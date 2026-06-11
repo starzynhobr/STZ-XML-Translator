@@ -126,6 +126,10 @@ class AppViewModel(QObject):
     selectedTagChanged = Signal(str, str)   # (parent_tag, target_tag)
     xmlPathSelectedChanged = Signal()        # fired when a file is chosen (before entries load)
     tagPresetsChanged = Signal()             # fired when the preset list changes
+    gameFolderChanged = Signal()             # fired when the global game folder changes
+    translationContextChanged = Signal()     # fired when the translation context/theme changes
+    xmlPathsFound    = Signal(list)          # multiple XML files found during folder scan
+    translationTargetChanged = Signal()      # fired when translation target locale changes
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -150,6 +154,7 @@ class AppViewModel(QObject):
         self._selected_xpath: str = ""
         self._parent_tags: list[str] = []
         self._child_tags: list[str] = []
+        self._child_tags_cache: dict[tuple[str, str], list[str]] = {}
         self._xml_path_selected: str = ""   # path chosen via file dialog, before entries are loaded
 
         # Restore preferred model from config
@@ -157,7 +162,9 @@ class AppViewModel(QObject):
         if saved_label and saved_label in self._models:
             self._selected_model_label = saved_label
 
-        self._ctrl.set_translation_target(saved_locale)
+        # Use saved translation target if available; fall back to UI locale.
+        target_locale = self._ctrl.preferred_translation_target or saved_locale
+        self._ctrl.set_translation_target(target_locale)
 
         # Kick off model sync if Gemini key exists
         if self._ctrl.preferred_provider == "Gemini" and self._ctrl.api_key:
@@ -189,6 +196,42 @@ class AppViewModel(QObject):
         path = self._xml_path_selected or self._ctrl.project.xml_path
         return os.path.basename(path) if path else ""
 
+    @QProperty(str, notify=loadedFileNameChanged)
+    def loadedFileDir(self) -> str:
+        """Directory of the currently loaded (or selected) XML file."""
+        path = self._xml_path_selected or self._ctrl.project.xml_path
+        return os.path.dirname(path) if path else ""
+
+    @QProperty(str, notify=loadedFileNameChanged)
+    def loadedFileRelPath(self) -> str:
+        """
+        Path to save in a preset's file field.
+        - With game_folder: relative path (portable across machines in the same game install).
+        - Without game_folder: full absolute path (works on this machine without extra setup).
+        """
+        path = self._xml_path_selected or self._ctrl.project.xml_path
+        if not path:
+            return ""
+        game_folder = self._ctrl.game_folder
+        if game_folder:
+            try:
+                return os.path.relpath(path, game_folder)
+            except ValueError:
+                pass  # different drives on Windows — fall through to absolute
+        return path  # absolute path when no game_folder defined
+
+    @QProperty(str, notify=gameFolderChanged)
+    def gameFolder(self) -> str:
+        """Global game root folder used to resolve preset file hints."""
+        return self._ctrl.game_folder
+
+    @Slot(str)
+    def setGameFolder(self, path: str) -> None:
+        """Persist the global game folder and refresh preset validity."""
+        self._ctrl.save_game_folder(path)
+        self.gameFolderChanged.emit()
+        self.tagPresetsChanged.emit()
+
     @QProperty(bool, notify=xmlPathSelectedChanged)
     def hasXmlPath(self) -> bool:
         """True once the user has picked an XML file (even before entries load)."""
@@ -204,8 +247,32 @@ class AppViewModel(QObject):
 
     @QProperty(list, notify=tagPresetsChanged)
     def tagPresets(self) -> list:
-        """List of preset dicts: {id, label, parent_tag, target_tag, file}."""
-        return self._ctrl.get_tag_presets()
+        """Preset list enriched with file_exists: True/False/None per item."""
+        game_folder = self._ctrl.game_folder
+        # Cache resolve results within this call (multiple presets may share a file)
+        _resolve_cache: dict[str, str] = {}
+
+        def _resolve(file_hint: str) -> str:
+            if file_hint not in _resolve_cache:
+                _resolve_cache[file_hint] = self._ctrl.resolve_preset_file(file_hint)
+            return _resolve_cache[file_hint]
+
+        result = []
+        for p in self._ctrl.get_tag_presets():
+            enriched = dict(p)
+            # preset_id: alias for id (QML treats "id" as a reserved keyword)
+            enriched["preset_id"] = p.get("id", 0)
+            file_hint = p.get("file", "")
+            # file_name: just the basename, for compact display in the dialog
+            enriched["file_name"] = os.path.basename(file_hint) if file_hint else ""
+            if file_hint:
+                is_abs = os.path.isabs(file_hint)
+                if is_abs or game_folder:
+                    # Can attempt resolution → show ✓ or ✗
+                    enriched["file_exists"] = bool(_resolve(file_hint))
+                # else: relative path and no game_folder → omit (undefined in QML)
+            result.append(enriched)
+        return result
 
     # ------------------------------------------------------------------
     # Properties — models (Gemini)
@@ -269,6 +336,10 @@ class AppViewModel(QObject):
     def ollamaModel(self) -> str:
         return self._ctrl.ollama_model
 
+    @QProperty(str, notify=translationContextChanged)
+    def translationContext(self) -> str:
+        return self._ctrl.translation_context
+
     # ------------------------------------------------------------------
     # Properties — i18n
     # ------------------------------------------------------------------
@@ -284,6 +355,11 @@ class AppViewModel(QObject):
     @QProperty(str, notify=languageChanged)
     def currentLocaleCode(self) -> str:
         return self._i18n.language
+
+    @QProperty(str, notify=translationTargetChanged)
+    def translationTargetCode(self) -> str:
+        """The locale code used as the AI translation target (independent of UI language)."""
+        return self._ctrl.preferred_translation_target or self._ctrl.preferred_locale
 
     # ------------------------------------------------------------------
     # Slots — provider / model
@@ -326,20 +402,39 @@ class AppViewModel(QObject):
         )
         self.providerChanged.emit()
 
+    @Slot(str)
+    def setTranslationContext(self, context: str) -> None:
+        self._ctrl.translation_context = context
+        self._ctrl.save_config(
+            api_key=self._ctrl.api_key,
+            model_label=self._selected_model_label,
+            model_id=self._ctrl.preferred_model_id,
+        )
+        self.translationContextChanged.emit()
+
     # ------------------------------------------------------------------
     # Slots — language
     # ------------------------------------------------------------------
 
     @Slot(str)
-    def changeLanguage(self, locale_code: str) -> None:
+    def changeUiLanguage(self, locale_code: str) -> None:
+        """Change the app UI language only. Does NOT affect the translation target."""
         self._i18n.load_language(locale_code)
-        self._ctrl.set_translation_target(locale_code)
         self._ctrl.save_preferred_locale(locale_code)
         self._table.update_headers(
             self._i18n.get("original_text_label"),
             self._i18n.get("translation_label"),
         )
         self.languageChanged.emit()
+        # Properties whose text comes from i18n but are notified via providerChanged
+        # (e.g. providerApiKeyLinkText) need an extra nudge when the language changes.
+        self.providerChanged.emit()
+
+    @Slot(str)
+    def setTranslationTarget(self, locale_code: str) -> None:
+        """Change the AI translation target language only. Does NOT affect UI strings."""
+        self._ctrl.save_preferred_translation_target(locale_code)
+        self.translationTargetChanged.emit()
         # Rebuild model labels with new locale tier strings
         self.modelsChanged.emit(self.modelLabels)
         # providerApiKeyLinkText depends on _i18n — refresh it too
@@ -455,6 +550,7 @@ class AppViewModel(QObject):
         # Reset pending tags so stale selections from a previous file don't carry over.
         self._pending_parent_tag = ""
         self._pending_target_tag = ""
+        self._child_tags_cache.clear()
 
         # Detect repeating elements with text children → populate parent dropdown.
         self._parent_tags = self._ctrl.get_parent_tags(path)
@@ -476,9 +572,7 @@ class AppViewModel(QObject):
         parent = self._pending_parent_tag or self._ctrl.project.parent_tag
         target = self._pending_target_tag or self._ctrl.project.target_tag
         if not parent or not target:
-            # Nothing selected yet — don't attempt to load
-            self.logAppended.emit(self._i18n.get("log_select_tags_first",
-                                                  "Select parent and target tags before loading."))
+            self.logAppended.emit(self._i18n.get("log_select_tags_first"))
             return
         self._load_xml(path, parent, target)
 
@@ -674,7 +768,10 @@ class AppViewModel(QObject):
         # Use _xml_path_selected so this works even before entries are loaded.
         xml_path = self._xml_path_selected or self._ctrl.project.xml_path
         if xml_path and tag:
-            self._child_tags = self._ctrl.get_child_tags(xml_path, tag)
+            cache_key = (xml_path, tag)
+            if cache_key not in self._child_tags_cache:
+                self._child_tags_cache[cache_key] = self._ctrl.get_child_tags(xml_path, tag)
+            self._child_tags = self._child_tags_cache[cache_key]
             self.childTagsChanged.emit()
 
     @Slot(str)
@@ -689,26 +786,71 @@ class AppViewModel(QObject):
     # Slots — tag presets
     # ------------------------------------------------------------------
 
-    @Slot(str, str, str, str)
-    def saveTagPreset(self, label: str, parent_tag: str, target_tag: str, file: str) -> None:
-        """Persist a new preset and notify QML."""
-        ok = self._ctrl.save_tag_preset(label.strip(), parent_tag, target_tag, file.strip())
+    @Slot(str, str, str, str, str)
+    def saveTagPreset(self, label: str, parent_tag: str, target_tag: str, file: str, _folder: str) -> None:
+        """Persist a new preset. file is stored as-is (relative path from game_folder)."""
+        ok = self._ctrl.save_tag_preset(label.strip(), parent_tag, target_tag, file.strip(), "")
         if ok:
             self.tagPresetsChanged.emit()
             self.logAppended.emit(
                 self._i18n.get("log_preset_saved", label=label.strip())
             )
 
-    @Slot(int)
+    @Slot("qlonglong", str)
+    def setPresetFolder(self, preset_id: int, folder: str) -> None:
+        """Assign (or clear) the local root folder for an existing preset."""
+        self._ctrl.update_preset_folder(preset_id, folder)
+        self.tagPresetsChanged.emit()
+
+    @Slot("qlonglong")
     def deleteTagPreset(self, preset_id: int) -> None:
         """Remove a preset by id."""
-        self._ctrl.delete_tag_preset(preset_id)
-        self.tagPresetsChanged.emit()
-        self.logAppended.emit(self._i18n.get("log_preset_deleted"))
+        ok = self._ctrl.delete_tag_preset(preset_id)
+        if ok:
+            self.tagPresetsChanged.emit()
+            self.logAppended.emit(self._i18n.get("log_preset_deleted"))
 
-    @Slot(str, str, str)
-    def applyTagPreset(self, label: str, parent_tag: str, target_tag: str) -> None:
-        """Apply a preset: fill combos and reload child tags if XML is loaded."""
+    @Slot()
+    def exportPresets(self) -> None:
+        """Export all presets to a JSON file chosen by the user."""
+        path, _ = QFileDialog.getSaveFileName(
+            caption=self._i18n.get("export_preset_caption"),
+            filter="STZ Presets (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        ok = self._ctrl.export_presets(path)
+        if ok:
+            import os as _os
+            self.logAppended.emit(
+                self._i18n.get("log_presets_exported", path=_os.path.basename(path))
+            )
+        else:
+            self.logAppended.emit(self._i18n.get("log_presets_export_fail"))
+
+    @Slot()
+    def importPresets(self) -> None:
+        """Import presets from a JSON file, merging with existing (deduplicates by label+tags)."""
+        path, _ = QFileDialog.getOpenFileName(
+            caption=self._i18n.get("import_preset_caption"),
+            filter="STZ Presets (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        imported, skipped = self._ctrl.import_presets(path)
+        if imported == -1:
+            self.logAppended.emit(self._i18n.get("log_presets_import_fail"))
+            return
+        self.tagPresetsChanged.emit()
+        self.logAppended.emit(
+            self._i18n.get("log_presets_imported", count=imported, skipped=skipped)
+        )
+
+    @Slot(str, str, str, str)
+    def applyTagPreset(self, label: str, parent_tag: str, target_tag: str, file_hint: str) -> None:
+        """Apply a preset: fill combos and, if game_folder is set, load the file + entries."""
         self._pending_parent_tag = parent_tag
         self._pending_target_tag = target_tag
         xml_path = self._xml_path_selected or self._ctrl.project.xml_path
@@ -716,9 +858,31 @@ class AppViewModel(QObject):
             self._child_tags = self._ctrl.get_child_tags(xml_path, parent_tag)
             self.childTagsChanged.emit()
         self.selectedTagChanged.emit(parent_tag, target_tag)
-        self.logAppended.emit(
-            self._i18n.get("log_preset_applied", label=label)
-        )
+        self.logAppended.emit(self._i18n.get("log_preset_applied", label=label))
+
+        if file_hint and self._ctrl.game_folder:
+            resolved = self._ctrl.resolve_preset_file(file_hint)
+            if resolved:
+                self._apply_preset_with_file(resolved, parent_tag, target_tag)
+            else:
+                self.logAppended.emit(
+                    self._i18n.get("log_xml_not_found_in_folder",
+                                   file=file_hint, folder=self._ctrl.game_folder)
+                )
+
+    def _apply_preset_with_file(self, path: str, parent_tag: str, target_tag: str) -> None:
+        """Load an XML file and entries directly (no dialog), filling all combos."""
+        self._xml_path_selected = path
+        self.xmlPathSelectedChanged.emit()
+        self.loadedFileNameChanged.emit()
+        self._parent_tags = self._ctrl.get_parent_tags(path)
+        self.parentTagsChanged.emit()
+        self._pending_parent_tag = parent_tag
+        self._pending_target_tag = target_tag
+        self._child_tags = self._ctrl.get_child_tags(path, parent_tag)
+        self.childTagsChanged.emit()
+        self.selectedTagChanged.emit(parent_tag, target_tag)
+        self._load_xml(path, parent_tag, target_tag)
 
     # ------------------------------------------------------------------
     # Internal

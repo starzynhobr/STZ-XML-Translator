@@ -27,13 +27,163 @@ Pane {
         anchors.margins: 12
         spacing: 8
 
-        // ---- Title ----
-        Label {
-            text: vm.strings["tools_panel_title"] ?? "Tools"
-            font.pixelSize: 18
-            font.weight: Font.DemiBold
-            Layout.alignment: Qt.AlignHCenter
+        // ---- Title row with info button ----
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: 32
             Layout.bottomMargin: 4
+
+            Label {
+                anchors.centerIn: parent
+                text: vm.strings["tools_panel_title"] ?? "Ferramentas"
+                font.pixelSize: 18
+                font.weight: Font.DemiBold
+                color: Theme.textPrimary
+            }
+
+            Rectangle {
+                id: infoBtn
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                width: 24; height: 24; radius: 12
+                color: infoBtnMouse.containsMouse ? Theme.bgSurface3 : "transparent"
+                border.color: Theme.borderModerate
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "i"
+                    color: infoBtnMouse.containsMouse ? Theme.primary : Theme.textSecondary
+                    font.pixelSize: 13
+                    font.italic: true
+                    font.weight: Font.Bold
+                }
+
+                MouseArea {
+                    id: infoBtnMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: infoDialog.open()
+                }
+            }
+        }
+
+        // ── Info / Help Dialog ──────────────────────────────────────────────
+        Dialog {
+            id: infoDialog
+            modal: true
+            anchors.centerIn: Overlay.overlay
+            width: 400
+            padding: 0
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+            background: Rectangle {
+                color: Theme.bgSurface2; radius: 8
+                border.color: Theme.borderModerate; border.width: 1
+            }
+
+            contentItem: ColumnLayout {
+                spacing: 0
+
+                // Header
+                Item {
+                    Layout.fillWidth: true; implicitHeight: 52
+                    Label {
+                        anchors { left: parent.left; right: parent.right
+                                  verticalCenter: parent.verticalCenter
+                                  leftMargin: 20; rightMargin: 20 }
+                        text: vm.strings["info_dialog_title"] ?? "Como usar"
+                        font.pixelSize: 15; font.weight: Font.DemiBold
+                        color: Theme.textPrimary
+                    }
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
+                }
+
+                // Scrollable tips
+                ScrollView {
+                    Layout.fillWidth: true
+                    implicitHeight: 420
+                    clip: true
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    ColumnLayout {
+                        width: 400 - 24   // dialog width minus scrollbar gutter
+                        spacing: 0
+
+                        Repeater {
+                            model: [
+                                { icon: "📂", key: "info_tip_load_xml_title",  bodyKey: "info_tip_load_xml"  },
+                                { icon: "🏷️", key: "info_tip_tags_title",       bodyKey: "info_tip_tags"      },
+                                { icon: "💾", key: "info_tip_presets_title",    bodyKey: "info_tip_presets"   },
+                                { icon: "⚡", key: "info_tip_batch_title",      bodyKey: "info_tip_batch"     },
+                                { icon: "✏️", key: "info_tip_single_title",     bodyKey: "info_tip_single"    },
+                                { icon: "📤", key: "info_tip_save_title",       bodyKey: "info_tip_save"      },
+                            ]
+
+                            delegate: ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.leftMargin: 20; Layout.rightMargin: 20
+                                Layout.topMargin: 14
+                                Layout.bottomMargin: 2
+                                spacing: 4
+
+                                // Section title
+                                RowLayout {
+                                    spacing: 6
+                                    Text { text: modelData.icon; font.pixelSize: 15 }
+                                    Label {
+                                        text: vm.strings[modelData.key] ?? modelData.key
+                                        font.pixelSize: 14; font.weight: Font.DemiBold
+                                        color: Theme.textPrimary
+                                    }
+                                }
+
+                                // Section body
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: vm.strings[modelData.bodyKey] ?? ""
+                                    font.pixelSize: 13
+                                    color: Theme.textSecondary
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: 1.5
+                                }
+
+                                // Thin separator (except last item)
+                                Rectangle {
+                                    visible: index < 5
+                                    Layout.fillWidth: true; height: 1
+                                    color: Theme.borderSubtle
+                                    Layout.topMargin: 10
+                                }
+                            }
+                        }
+
+                        Item { implicitHeight: 16 }
+                    }
+                }
+
+                // Footer
+                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
+                Row {
+                    Layout.alignment: Qt.AlignRight
+                    Layout.rightMargin: 16; Layout.topMargin: 10; Layout.bottomMargin: 10
+
+                    AppButton {
+                        text: vm.strings["close_button"] ?? "Fechar"
+                        onClicked: infoDialog.close()
+                        background: Rectangle {
+                            color: parent.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                            radius: 4; border.color: Theme.borderModerate; border.width: 1
+                            Behavior on color { ColorAnimation { duration: 100 } }
+                        }
+                        contentItem: Label {
+                            text: parent.text; color: Theme.textPrimary
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter; font: parent.font
+                        }
+                    }
+                }
+            }
         }
 
         // ---- Provider selector ----
@@ -235,6 +385,29 @@ Pane {
 
         // ---- Separator ----
         Rectangle { height: 1; color: Theme.borderModerate; Layout.fillWidth: true }
+
+        // ---- Translation context / theme ----
+        Label {
+            text: vm.strings["translation_context_label"] ?? "Contexto / Tema"
+            font.pixelSize: 12
+            color: Theme.textSecondary
+        }
+        TextField {
+            id: contextField
+            text: vm.translationContext
+            placeholderText: vm.strings["translation_context_placeholder"] ?? "Ex: Marvel, Skyrim, The Sims 4..."
+            Layout.fillWidth: true
+            enabled: !vm.isTranslating
+            onEditingFinished: vm.setTranslationContext(text)
+            color: Theme.textInput
+            placeholderTextColor: Theme.textPlaceholder
+            background: Rectangle {
+                color: Theme.bgInput
+                radius: 4
+                border.color: parent.activeFocus ? Theme.borderFocus : Theme.borderInput
+                border.width: parent.activeFocus ? 2 : 1
+            }
+        }
 
         // ---- Original text (read-only) ----
         Label {

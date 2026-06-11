@@ -151,12 +151,18 @@ def _is_paid_tier(base: str) -> bool:
     return False
 
 
+def _context_hint(config: dict) -> str:
+    ctx = (config.get("translation_context") or "").strip()
+    return f" This content is from: {ctx}." if ctx else ""
+
+
 class GeminiService(TranslationService):
     def translate(self, text, config):
         target_lang = (config.get("target_lang") or "pt").lower()
         target_label = config.get("target_label", "Portuguese (Brazil)")
         source_label = config.get("source_label", "English")
         api_key = config.get("api_key", "")
+        context_hint = _context_hint(config)
 
         model = get_gemini_model(config.get("model", "gemini-1.5-flash"), api_key=api_key)
 
@@ -173,13 +179,14 @@ class GeminiService(TranslationService):
 
         if glossary_used and target_lang == "pt":
             prompt = (
+                f"Act as a game localization specialist.{context_hint} "
                 "Refine the following pre-translated sentence so it sounds natural in "
                 f"{target_label}, keeping the words that are already in Portuguese untouched. "
                 f'Text: "{pretranslated_text}". Reply with the final text only.'
             )
         else:
             prompt = (
-                "Act as a game localization specialist. "
+                f"Act as a game localization specialist.{context_hint} "
                 f"Translate the following text from {source_label} to {target_label}: "
                 f'"{text}". Reply with the final text only.'
             )
@@ -210,10 +217,12 @@ class OllamaService(TranslationService):
     def translate(self, text, config):
         url = "http://localhost:11434/api/generate"
         target_label = config.get("target_label", "Portuguese (Brazil)")
+        context_hint = _context_hint(config)
 
         prompt = (
-            "[INST]Act as a translation service that converts JSON values only. "
-            f"Translate the value below to {target_label}. Keep the key exactly the same. "
+            f"[INST]Act as a game localization specialist.{context_hint} "
+            f"Translate the JSON value below to {target_label}. Keep proper nouns and "
+            "character names that should not be translated. Keep the key exactly the same. "
             "Respond with JSON only.\n\n"
             "Input:\n"
             "{\n"
@@ -235,6 +244,49 @@ class OllamaService(TranslationService):
         response_json_text = response.json()["response"]
         translated_dict = json.loads(response_json_text)
         return next(iter(translated_dict.values()))
+
+
+def translate_batch_ollama(entries, config: dict) -> "dict[str, str] | None":
+    """
+    Translates multiple short entries in one Ollama request.
+    Returns {xpath: translated_text} or None if the response can't be parsed.
+    Falls back to sequential translation per entry on failure.
+    """
+    target_label = config.get("target_label", "Portuguese (Brazil)")
+    context_hint = _context_hint(config)
+
+    input_texts = [e.original for e in entries]
+    input_json = json.dumps({"inputs": input_texts}, ensure_ascii=False)
+
+    prompt = (
+        f"[INST]Act as a game localization specialist.{context_hint} "
+        f"Translate every string in the \"inputs\" array to {target_label}. "
+        "Keep proper nouns and character names that should not be translated. "
+        "Return JSON with a single key \"translations\" containing the translated "
+        f"strings as an array in the same order.\nInput: {input_json}[/INST]"
+    )
+
+    data = {
+        "model": config.get("model", "llama3"),
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+    }
+
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json=data,
+            timeout=config.get("timeout", 300),
+        )
+        response.raise_for_status()
+        result = json.loads(response.json()["response"])
+        translations = result.get("translations") or result.get("Translations")
+        if not isinstance(translations, list) or len(translations) != len(entries):
+            return None
+        return {e.xpath: str(t).strip() for e, t in zip(entries, translations)}
+    except Exception:
+        return None
 
 
 AVAILABLE_SERVICES = {
@@ -289,6 +341,7 @@ def traduzir_arquivo_json(
 __all__ = [
     "AVAILABLE_SERVICES",
     "translate_text",
+    "translate_batch_ollama",
     "traduzir_arquivo_json",
     "get_gemini_model",
     "list_gemini_models",

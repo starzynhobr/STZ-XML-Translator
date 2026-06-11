@@ -68,8 +68,11 @@ Item {
             background: null   // container rectangle provides the background
 
             onTextEdited: {
-                root.committed(text)
+                // Filter the list immediately (pure QML, no XML read)
                 _refreshList(text)
+                // Delay the "committed" signal so get_child_tags() isn't called
+                // on every keystroke — fires 300 ms after the user stops typing.
+                commitDebounce.restart()
                 // Auto-open popup if there are filtered results
                 if (filteredModel.count > 0 && text.length > 0)
                     popup.open()
@@ -205,6 +208,16 @@ Item {
                 }
             }
         }
+    }
+
+    // ── Debounce timer — commits 300 ms after typing stops ────────────────
+    // This prevents get_child_tags() (an XML file read) from firing on
+    // every keystroke; only fires when the user pauses or finishes typing.
+    Timer {
+        id: commitDebounce
+        interval: 300
+        repeat: false
+        onTriggered: root.committed(field.text)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

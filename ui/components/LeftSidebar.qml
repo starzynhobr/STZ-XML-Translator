@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Controls.FluentWinUI3
+import QtQuick.Dialogs
 
 Pane {
     id: root
@@ -10,18 +11,133 @@ Pane {
     required property int    progressDone
     required property int    progressTotal
 
-    property var localeNames:  Object.keys(vm.availableLocales)
-    property var localeCodes:  Object.values(vm.availableLocales)
-    property int currentLocaleIdx: {
-        var codes = Object.values(vm.availableLocales)
-        var idx = codes.indexOf(vm.currentLocaleCode)
+    // Shared locale list used by both selectors
+    property var localeNames: Object.keys(vm.availableLocales)
+    property var localeCodes: Object.values(vm.availableLocales)
+
+    // Paths found during folder scan (populated by xmlPathsFound signal)
+    property var xmlPickerPaths: []
+    // Preset pending apply while folder dialog is open
+    property var pendingApplyPreset: null
+
+    // Index of the currently selected TRANSLATION TARGET locale
+    property int currentTargetIdx: {
+        var idx = localeCodes.indexOf(vm.translationTargetCode)
         return idx >= 0 ? idx : 0
+    }
+
+    // Display name for the current UI language (used in the footer button)
+    property string currentUiLocaleName: {
+        var idx = localeCodes.indexOf(vm.currentLocaleCode)
+        return idx >= 0 ? localeNames[idx] : vm.currentLocaleCode
     }
 
     background: Rectangle { color: Theme.bgSurface1; radius: 6 }
 
+    // ── UI Language button — pinned to the bottom of the sidebar ──────────
+    Rectangle {
+        id: uiLangFooter
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: 34
+        color: uiLangFooterMouse.containsMouse ? Theme.bgSurface2 : Theme.bgSurface1
+        radius: 6   // match Pane radius at the bottom
+        clip: true
+
+        Rectangle {
+            anchors.top: parent.top; width: parent.width; height: 1
+            color: Theme.borderSubtle
+        }
+
+        Row {
+            anchors.centerIn: parent
+            spacing: 5
+
+            Text {
+                text: "🌐"
+                font.pixelSize: 12
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                text: root.currentUiLocaleName
+                color: Theme.textSecondary
+                font.pixelSize: 11
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                text: "▾"
+                color: Theme.textSecondary
+                font.pixelSize: 8
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        MouseArea {
+            id: uiLangFooterMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: uiLangPopup.open()
+        }
+
+        // Language picker popup — opens upward from the footer
+        Popup {
+            id: uiLangPopup
+            y: -Math.min(root.localeNames.length * 34 + 8, 200) - 4
+            width: parent.width
+            height: Math.min(root.localeNames.length * 34 + 8, 200)
+            padding: 4
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+            background: Rectangle {
+                color: Theme.bgSurface2; radius: 4
+                border.color: Theme.borderInput; border.width: 1
+            }
+
+            contentItem: ListView {
+                model: root.localeNames
+                clip: true
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                delegate: Rectangle {
+                    width: ListView.view.width
+                    height: 34
+                    color: uiLangItemMouse.containsMouse ? Theme.bgSurface3 : "transparent"
+                    radius: 3
+
+                    Text {
+                        anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 10 }
+                        text: modelData
+                        color: root.localeCodes[index] === vm.currentLocaleCode
+                               ? Theme.primary : Theme.textPrimary
+                        font.pixelSize: 12
+                        font.weight: root.localeCodes[index] === vm.currentLocaleCode
+                                     ? Font.Medium : Font.Normal
+                    }
+
+                    Text {
+                        anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 10 }
+                        text: "✓"
+                        color: Theme.primary; font.pixelSize: 11
+                        visible: root.localeCodes[index] === vm.currentLocaleCode
+                    }
+
+                    MouseArea {
+                        id: uiLangItemMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            vm.changeUiLanguage(root.localeCodes[index])
+                            uiLangPopup.close()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     ScrollView {
-        anchors.fill: parent
+        anchors { left: parent.left; right: parent.right; top: parent.top; bottom: uiLangFooter.top }
         contentWidth: availableWidth
         clip: true
 
@@ -108,39 +224,46 @@ Pane {
                 Layout.bottomMargin: 12
             }
 
-            // ---- Language selector ----
+            // ---- Translation target language ----
+            Label {
+                text: vm.strings["translate_to_label"] ?? "Traduzir para:"
+                font.pixelSize: 11
+                color: Theme.textSecondary
+                Layout.leftMargin: 16
+                Layout.bottomMargin: 2
+            }
             ComboBox {
-                id: langCombo
+                id: targetLangCombo
                 model: root.localeNames
-                currentIndex: root.currentLocaleIdx
+                currentIndex: root.currentTargetIdx
                 Layout.fillWidth: true
                 Layout.leftMargin: 16; Layout.rightMargin: 16
                 Layout.bottomMargin: 12
-                onActivated: vm.changeLanguage(root.localeCodes[currentIndex])
+                onActivated: vm.setTranslationTarget(root.localeCodes[currentIndex])
 
                 contentItem: Text {
                     leftPadding: 8
-                    text: langCombo.displayText
+                    text: targetLangCombo.displayText
                     color: Theme.textInput
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
-                    font: langCombo.font
+                    font: targetLangCombo.font
                 }
                 background: Rectangle {
-                    color: langCombo.hovered ? Theme.bgSurface3 : Theme.bgInput
+                    color: targetLangCombo.hovered ? Theme.bgSurface3 : Theme.bgInput
                     radius: 4
-                    border.color: langCombo.activeFocus ? Theme.borderFocus : Theme.borderInput
-                    border.width: langCombo.activeFocus ? 2 : 1
+                    border.color: targetLangCombo.activeFocus ? Theme.borderFocus : Theme.borderInput
+                    border.width: targetLangCombo.activeFocus ? 2 : 1
                 }
                 popup: Popup {
-                    y: langCombo.height
-                    width: langCombo.width
-                    height: Math.min(langListView.contentHeight + 8, 200)
+                    y: targetLangCombo.height
+                    width: targetLangCombo.width
+                    height: Math.min(targetLangListView.contentHeight + 8, 200)
                     padding: 4
                     background: Rectangle { color: Theme.bgSurface2; radius: 4; border.color: Theme.borderInput; border.width: 1 }
                     contentItem: ListView {
-                        id: langListView
-                        model: langCombo.delegateModel
+                        id: targetLangListView
+                        model: targetLangCombo.delegateModel
                         clip: true
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     }
@@ -252,6 +375,63 @@ Pane {
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         font: loadPresetBtn.font
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+
+            // ---- Preset export / import row ----
+            Row {
+                Layout.fillWidth: true
+                Layout.leftMargin: 16; Layout.rightMargin: 16
+                Layout.bottomMargin: 6
+                spacing: 6
+
+                AppButton {
+                    id: exportPresetBtn
+                    text: vm.strings["export_preset_button"] ?? "📤 Exportar Presets"
+                    width: (parent.width - parent.spacing) / 2
+                    enabled: vm.tagPresets.length > 0
+                    font.pixelSize: 11
+                    onClicked: vm.exportPresets()
+                    background: Rectangle {
+                        color: exportPresetBtn.enabled
+                            ? (exportPresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
+                            : Theme.bgBase
+                        radius: 4
+                        border.color: exportPresetBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: exportPresetBtn.text
+                        color: exportPresetBtn.enabled ? Theme.textPrimary : Theme.textDisabled
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font: exportPresetBtn.font
+                        elide: Text.ElideRight
+                    }
+                }
+
+                AppButton {
+                    id: importPresetBtn
+                    text: vm.strings["import_preset_button"] ?? "📥 Importar Presets"
+                    width: (parent.width - parent.spacing) / 2
+                    font.pixelSize: 11
+                    onClicked: vm.importPresets()
+                    background: Rectangle {
+                        color: importPresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                        radius: 4
+                        border.color: Theme.borderModerate
+                        border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: importPresetBtn.text
+                        color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font: importPresetBtn.font
                         elide: Text.ElideRight
                     }
                 }
@@ -561,7 +741,7 @@ Pane {
                 Layout.margins: 20
                 spacing: 10
 
-                // Current tag pair info
+                // Tag pair pill
                 Rectangle {
                     Layout.fillWidth: true
                     height: 32; radius: 4
@@ -577,7 +757,7 @@ Pane {
                     }
                 }
 
-                // Description field (required)
+                // Description (required)
                 Label {
                     text: vm.strings["preset_label_field"] ?? "Descrição *"
                     font.pixelSize: 11; color: Theme.textSecondary
@@ -596,14 +776,17 @@ Pane {
                     }
                 }
 
-                // File field (optional)
+                // File hint — auto-filled from the loaded XML
                 Label {
-                    text: vm.strings["preset_file_field"] ?? "Arquivo (opcional)"
+                    text: vm.gameFolder
+                        ? (vm.strings["preset_file_relative_label"] ?? "Arquivo (relativo à pasta do jogo)")
+                        : (vm.strings["preset_file_field"] ?? "Arquivo")
                     font.pixelSize: 11; color: Theme.textSecondary
                 }
                 TextField {
                     id: savePresetFileField
                     Layout.fillWidth: true
+                    text: vm.loadedFileRelPath
                     placeholderText: vm.strings["preset_file_placeholder"] ?? "ex: characters.xml"
                     color: Theme.textInput
                     placeholderTextColor: Theme.textPlaceholder
@@ -646,7 +829,8 @@ Pane {
                             savePresetLabelField.text.trim(),
                             parentTagCombo.value,
                             targetTagCombo.value,
-                            savePresetFileField.text.trim()
+                            savePresetFileField.text.trim(),
+                            ""
                         )
                         savePresetDialog.close()
                     }
@@ -702,10 +886,67 @@ Pane {
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
             }
 
+            // ── Game folder row
+            Rectangle {
+                Layout.fillWidth: true
+                height: 44
+                color: gameFolderRowMouse.containsMouse ? Theme.bgSurface3 : Theme.bgSurface1
+
+                RowLayout {
+                    anchors { fill: parent; leftMargin: 14; rightMargin: 12 }
+                    spacing: 8
+
+                    Text {
+                        text: "📁"; font.pixelSize: 13
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 1
+
+                        Label {
+                            text: vm.strings["preset_game_folder_label"] ?? "Pasta do jogo"
+                            font.pixelSize: 10; color: Theme.textSecondary
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: vm.gameFolder !== ""
+                                ? vm.gameFolder
+                                : (vm.strings["preset_game_folder_not_set"] ?? "Não definida — clique para selecionar")
+                            font.pixelSize: 11
+                            color: vm.gameFolder !== "" ? Theme.textPrimary : Theme.textSecondary
+                            elide: Text.ElideMiddle
+                        }
+                    }
+
+                    Label {
+                        text: "▾"; font.pixelSize: 9
+                        color: Theme.textSecondary
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+
+                MouseArea {
+                    id: gameFolderRowMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: gameFolderDialog.open()
+                    ToolTip.visible: containsMouse
+                    ToolTip.text: vm.strings["preset_game_folder_tooltip"] ?? "Pasta raiz do jogo — usada para localizar os XMLs dos presets"
+                    ToolTip.delay: 600
+                }
+
+                Behavior on color { ColorAnimation { duration: 80 } }
+            }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
+
             // ── Body — preset list
             Item {
                 Layout.fillWidth: true
-                implicitHeight: Math.min(Math.max(vm.tagPresets.length, 1) * 68 + 16, 340)
+                implicitHeight: Math.min(Math.max(vm.tagPresets.length, 1) * 68 + 16, 300)
 
                 // Empty state
                 Label {
@@ -746,16 +987,34 @@ Pane {
                                     color: Theme.textPrimary; elide: Text.ElideRight
                                 }
                                 RowLayout {
+                                    Layout.fillWidth: true
                                     spacing: 6
                                     Label {
+                                        Layout.fillWidth: true
                                         text: (modelData.parent_tag ?? "") + " → " + (modelData.target_tag ?? "")
                                         font.pixelSize: 11; color: Theme.primary
+                                        elide: Text.ElideRight
                                     }
                                     Label {
-                                        visible: (modelData.file ?? "") !== ""
-                                        text: "• " + (modelData.file ?? "")
+                                        visible: (modelData.file_name ?? "") !== ""
+                                        text: "• " + (modelData.file_name ?? "")
                                         font.pixelSize: 10; color: Theme.textSecondary
                                         elide: Text.ElideRight
+                                        Layout.maximumWidth: 100
+                                    }
+                                    // Validity indicator — only shown when game_folder is set and file hint exists
+                                    Label {
+                                        visible: (modelData.file ?? "") !== "" && modelData.file_exists !== undefined
+                                        text: modelData.file_exists ? "✓" : "✗"
+                                        font.pixelSize: 10
+                                        font.weight: Font.Medium
+                                        color: modelData.file_exists ? "#4ec94e" : Theme.danger
+                                        ToolTip.visible: hoverStatus.containsMouse
+                                        ToolTip.text: modelData.file_exists
+                                            ? (vm.strings["preset_file_valid"] ?? "Arquivo encontrado")
+                                            : (vm.strings["preset_file_invalid"] ?? "Arquivo não encontrado na pasta do jogo")
+                                        ToolTip.delay: 400
+                                        MouseArea { id: hoverStatus; anchors.fill: parent; hoverEnabled: true }
                                     }
                                 }
                             }
@@ -766,12 +1025,24 @@ Pane {
                                 font.pixelSize: 11
                                 implicitWidth: 60; implicitHeight: 28
                                 onClicked: {
-                                    vm.applyTagPreset(
-                                        modelData.label ?? "",
-                                        modelData.parent_tag ?? "",
-                                        modelData.target_tag ?? ""
-                                    )
-                                    loadPresetDialog.close()
+                                    var fileHint = modelData.file ?? ""
+                                    // Only ask for game folder when the hint is a relative
+                                    // path (no drive letter / leading slash) AND no game
+                                    // folder is set — absolute paths work without it.
+                                    var isAbsolute = fileHint.length > 1 &&
+                                        (fileHint[1] === ':' || fileHint[0] === '/')
+                                    if (fileHint !== "" && !isAbsolute && vm.gameFolder === "") {
+                                        root.pendingApplyPreset = modelData
+                                        gameFolderDialog.open()
+                                    } else {
+                                        vm.applyTagPreset(
+                                            modelData.label ?? "",
+                                            modelData.parent_tag ?? "",
+                                            modelData.target_tag ?? "",
+                                            fileHint
+                                        )
+                                        loadPresetDialog.close()
+                                    }
                                 }
                                 background: Rectangle {
                                     color: parent.hovered ? Theme.primaryHover : Theme.primary
@@ -791,7 +1062,7 @@ Pane {
                                 text: "🗑"
                                 font.pixelSize: 13
                                 implicitWidth: 30; implicitHeight: 28
-                                onClicked: vm.deleteTagPreset(modelData.id ?? 0)
+                                onClicked: vm.deleteTagPreset(modelData.preset_id ?? 0)
                                 background: Rectangle {
                                     color: parent.hovered ? Theme.dangerHover : "transparent"
                                     radius: 4
@@ -810,7 +1081,7 @@ Pane {
                 }
             }
 
-            // ── Footer
+            // ── Footer (load preset)
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
             Row {
                 Layout.alignment: Qt.AlignRight
@@ -835,4 +1106,161 @@ Pane {
     }
 
     GlossaryDialog { id: glossaryDialog }
+
+    // ── FolderDialog for global game folder ──────────────────────────────────
+    FolderDialog {
+        id: gameFolderDialog
+        title: vm.strings["preset_game_folder_tooltip"] ?? "Selecionar Pasta do Jogo"
+        onAccepted: {
+            var s = selectedFolder.toString()
+            var path = s.startsWith("file:///") ? s.slice(8) : s
+            vm.setGameFolder(path)
+            // If Apply was pending while waiting for folder, execute it now
+            if (root.pendingApplyPreset !== null) {
+                var p = root.pendingApplyPreset
+                vm.applyTagPreset(
+                    p.label ?? "",
+                    p.parent_tag ?? "",
+                    p.target_tag ?? "",
+                    p.file ?? ""
+                )
+                loadPresetDialog.close()
+                root.pendingApplyPreset = null
+            }
+        }
+        onRejected: root.pendingApplyPreset = null
+    }
+
+    // ── Listen for multiple XML scan results ─────────────────────────────────
+    Connections {
+        target: vm
+        function onXmlPathsFound(paths) {
+            root.xmlPickerPaths = paths
+            xmlPickerDialog.open()
+        }
+    }
+
+    // ── XML Picker Dialog (shown when folder scan finds multiple files) ───────
+    Dialog {
+        id: xmlPickerDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 460
+        padding: 0
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: Theme.bgSurface2; radius: 8
+            border.color: Theme.borderModerate; border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // ── Header
+            Item {
+                Layout.fillWidth: true; implicitHeight: 52
+                Label {
+                    anchors { left: parent.left; right: parent.right
+                              verticalCenter: parent.verticalCenter
+                              leftMargin: 20; rightMargin: 20 }
+                    text: vm.strings["xml_picker_title"] ?? "Selecionar Arquivo XML"
+                    font.pixelSize: 14; font.weight: Font.DemiBold
+                    color: Theme.textPrimary; elide: Text.ElideRight
+                }
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
+            }
+
+            // ── Subtitle
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20; Layout.rightMargin: 20; Layout.topMargin: 12
+                text: (vm.strings["xml_picker_subtitle"] ?? "{count} arquivo(s) encontrado(s). Selecione qual carregar:").replace("{count}", root.xmlPickerPaths.length)
+                font.pixelSize: 12; color: Theme.textSecondary
+                wrapMode: Text.Wrap
+            }
+
+            // ── File list
+            Item {
+                Layout.fillWidth: true
+                Layout.topMargin: 8; Layout.bottomMargin: 8
+                implicitHeight: Math.min(root.xmlPickerPaths.length * 56 + 16, 280)
+
+                ListView {
+                    anchors { fill: parent; margins: 8 }
+                    model: root.xmlPickerPaths
+                    clip: true
+                    spacing: 4
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    delegate: Rectangle {
+                        width: ListView.view.width
+                        height: 48
+                        radius: 6
+                        color: hoverArea.containsMouse ? Theme.bgSurface3 : Theme.bgSurface1
+                        border.color: Theme.borderSubtle; border.width: 1
+
+                        Behavior on color { ColorAnimation { duration: 80 } }
+
+                        ColumnLayout {
+                            anchors { fill: parent; leftMargin: 12; rightMargin: 12; topMargin: 6; bottomMargin: 6 }
+                            spacing: 2
+                            Label {
+                                Layout.fillWidth: true
+                                text: {
+                                    var parts = modelData.replace(/\\/g, "/").split("/")
+                                    return parts[parts.length - 1]
+                                }
+                                font.pixelSize: 12; font.weight: Font.Medium
+                                color: Theme.textPrimary; elide: Text.ElideRight
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: {
+                                    var parts = modelData.replace(/\\/g, "/").split("/")
+                                    parts.pop()
+                                    return parts.join("/")
+                                }
+                                font.pixelSize: 10; color: Theme.textSecondary
+                                elide: Text.ElideLeft
+                            }
+                        }
+
+                        MouseArea {
+                            id: hoverArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                vm.loadXml(modelData)
+                                xmlPickerDialog.close()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Footer
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
+            Row {
+                Layout.alignment: Qt.AlignRight
+                Layout.rightMargin: 16; Layout.topMargin: 12; Layout.bottomMargin: 12
+
+                AppButton {
+                    text: vm.strings["close_button"] ?? "Fechar"
+                    onClicked: xmlPickerDialog.close()
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                        radius: 4; border.color: Theme.borderModerate; border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text; color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter; font: parent.font
+                    }
+                }
+            }
+        }
+    }
 }

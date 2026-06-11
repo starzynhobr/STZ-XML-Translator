@@ -57,9 +57,14 @@ class AppController:
         self.preferred_model_label: str = ""
         self.preferred_provider: str = "Gemini"
         self.preferred_locale: str = "pt_BR"
+        # Translation target is now independent from the UI locale.
+        # Falls back to preferred_locale for backward compat on first run.
+        self.preferred_translation_target: str = ""
         self.ollama_model: str = "llama3"
+        self.translation_context: str = ""
         self._api_keys: dict[str, str] = {}
         self.translation_target: dict[str, str] = TRANSLATION_TARGETS["pt"].copy()
+        self.game_folder: str = ""
 
         self._load_config()
 
@@ -75,15 +80,22 @@ class AppController:
                 data = json.load(f)
             self.preferred_provider = data.get("provider", "Gemini")
             self.preferred_locale = data.get("locale", "pt_BR")
+            # translation_target_locale is independent from UI locale.
+            # If not present (old config), fall back to the UI locale.
+            self.preferred_translation_target = data.get(
+                "translation_target_locale", self.preferred_locale
+            )
             self.preferred_model_id = data.get("preferred_model_id", self.preferred_model_id)
             self.preferred_model_label = data.get("preferred_model", "")
             self.ollama_model = data.get("ollama_model", "llama3")
+            self.translation_context = data.get("translation_context", "")
             # Per-provider keys (new format)
             self._api_keys = data.get("api_keys", {})
             # Backward compat: old config stored a single api_key for Gemini
             if not self._api_keys.get("Gemini") and data.get("api_key"):
                 self._api_keys["Gemini"] = data["api_key"]
             self.api_key = self._api_keys.get(self.preferred_provider, "")
+            self.game_folder = data.get("game_folder", "")
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -108,10 +120,13 @@ class AppController:
         data: dict = {
             "provider": self.preferred_provider,
             "locale": self.preferred_locale,
+            "translation_target_locale": self.preferred_translation_target or self.preferred_locale,
             "preferred_model": model_label,
             "preferred_model_id": model_id,
             "ollama_model": self.ollama_model,
+            "translation_context": self.translation_context,
             "api_keys": {k: v for k, v in self._api_keys.items() if v},
+            "game_folder": self.game_folder,
         }
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -120,13 +135,63 @@ class AppController:
             pass
 
     def save_preferred_locale(self, locale_code: str) -> None:
-        """Persist the selected UI locale independently of a full save_config call."""
+        """Persist the UI locale. Does NOT change the translation target."""
         self.preferred_locale = locale_code
         self.save_config(
             api_key=self.api_key,
             model_label=self.preferred_model_label,
             model_id=self.preferred_model_id,
         )
+
+    def save_preferred_translation_target(self, locale_code: str) -> None:
+        """Persist and apply the translation target locale. Does NOT change the UI language."""
+        self.preferred_translation_target = locale_code
+        self.set_translation_target(locale_code)
+        self.save_config(
+            api_key=self.api_key,
+            model_label=self.preferred_model_label,
+            model_id=self.preferred_model_id,
+        )
+
+    def save_game_folder(self, path: str) -> None:
+        """Persist the game root folder without overwriting other config keys."""
+        self.game_folder = path
+        try:
+            data: dict = {}
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, encoding="utf-8") as f:
+                    data = json.load(f)
+            data["game_folder"] = path
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    def resolve_preset_file(self, file_hint: str) -> str:
+        """
+        Return the absolute path for a preset file hint, or '' if not resolvable.
+
+        Resolution order:
+        1. Absolute path that exists → use directly (no game_folder needed).
+        2. Relative path + game_folder → join and check.
+        3. Any hint + game_folder → recursive scan by basename as fallback
+           (handles old presets that stored only the filename).
+        """
+        if not file_hint:
+            return ""
+        # Case 1: absolute path that still exists on this machine
+        if os.path.isabs(file_hint) and os.path.exists(file_hint):
+            return file_hint
+        # Cases 2 & 3 require a game_folder
+        if not self.game_folder:
+            return ""
+        resolved = os.path.join(self.game_folder, file_hint)
+        if os.path.exists(resolved):
+            return resolved
+        # Fallback: scan by basename (handles bare filenames and moved files)
+        basename = os.path.basename(file_hint)
+        paths = self.scan_for_xml(self.game_folder, basename)
+        return paths[0] if len(paths) == 1 else ""
 
     def get_api_key(self, provider: str) -> str:
         return self._api_keys.get(provider, "")
@@ -301,6 +366,7 @@ class AppController:
             "target_label": meta.get("label", "Portuguese (Brazil)"),
             "deepl_lang": meta.get("deepl", "PT-BR"),
             "source_label": self.source_language_label,
+            "translation_context": self.translation_context,
         }
 
     # ------------------------------------------------------------------
@@ -402,6 +468,7 @@ class AppController:
         parent_tag: str,
         target_tag: str,
         file: str = "",
+        folder: str = "",
     ) -> bool:
         """Append a new preset and persist to disk. Returns True on success."""
         import time
@@ -412,6 +479,7 @@ class AppController:
             "parent_tag": parent_tag,
             "target_tag": target_tag,
             "file": file,
+            "folder": folder,
         })
         return self._write_presets(presets)
 
@@ -419,6 +487,85 @@ class AppController:
         """Remove the preset with the given id. Returns True on success."""
         presets = [p for p in self.get_tag_presets() if p.get("id") != preset_id]
         return self._write_presets(presets)
+
+    def update_preset_folder(self, preset_id: int, folder: str) -> bool:
+        """Set or clear the root folder for an existing preset. Returns True on success."""
+        presets = self.get_tag_presets()
+        for p in presets:
+            if p.get("id") == preset_id:
+                p["folder"] = folder
+                return self._write_presets(presets)
+        return False
+
+    def scan_for_xml(self, root_folder: str, filename: str) -> list[str]:
+        """Recursively search root_folder for files matching filename. Returns sorted absolute paths."""
+        from pathlib import Path
+        root = Path(root_folder)
+        if not root.is_dir() or not filename:
+            return []
+        return sorted(str(p) for p in root.rglob(filename) if p.is_file())
+
+    def export_presets(self, path: str) -> bool:
+        """Write current presets to a user-specified file (folder field stripped — machine-specific)."""
+        try:
+            presets = [
+                {k: v for k, v in p.items() if k != "folder"}
+                for p in self.get_tag_presets()
+            ]
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"presets": presets}, f, indent=2, ensure_ascii=False)
+            return True
+        except OSError:
+            return False
+
+    def import_presets(self, path: str) -> tuple[int, int]:
+        """
+        Merge presets from an external file into the local store.
+        Deduplicates by (label, parent_tag, target_tag).
+        Returns (imported_count, skipped_count), or (-1, 0) on parse error.
+        """
+        import time as _time
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            incoming = data.get("presets", [])
+            if not isinstance(incoming, list):
+                return (-1, 0)
+        except (OSError, json.JSONDecodeError, ValueError):
+            return (-1, 0)
+
+        existing = self.get_tag_presets()
+        existing_keys = {
+            (p.get("label", ""), p.get("parent_tag", ""), p.get("target_tag", ""))
+            for p in existing
+        }
+        imported = 0
+        skipped = 0
+        for preset in incoming:
+            if not isinstance(preset, dict):
+                skipped += 1
+                continue
+            key = (
+                preset.get("label", ""),
+                preset.get("parent_tag", ""),
+                preset.get("target_tag", ""),
+            )
+            if key in existing_keys:
+                skipped += 1
+                continue
+            existing.append({
+                "id": int(_time.time() * 1000) + imported,
+                "label": preset.get("label", ""),
+                "parent_tag": preset.get("parent_tag", ""),
+                "target_tag": preset.get("target_tag", ""),
+                "file": preset.get("file", ""),
+            })
+            existing_keys.add(key)
+            imported += 1
+
+        if imported > 0:
+            self._write_presets(existing)
+        return (imported, skipped)
 
     def _write_presets(self, presets: list[dict]) -> bool:
         try:
