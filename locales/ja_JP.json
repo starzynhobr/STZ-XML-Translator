@@ -156,5 +156,13 @@
     "translation_context_tooltip": "例：\"Marvel Comics, superhero game\"\n\"Skyrim, medieval fantasy RPG\"\n\n英語で入力すると最良の結果が得られます。\n特定の用語を固定するには用語集を使用してください。",
     "settings_tooltip": "設定",
     "settings_title": "設定",
-    "presets_section_title": "タグプリセット"
+    "presets_section_title": "タグプリセット",
+    "log_mass_translation_start": "バッチ翻訳を開始: {total} 件の未翻訳アイテム。",
+    "log_checkpoint_loaded": "チェックポイント読み込み: {n} 件の翻訳を再開しました。",
+    "log_sending_gemini": "{n} 件のアイテムをGemini APIに送信中…",
+    "log_items_skipped": "警告: このバッチでAIが {n} 件をスキップしました。",
+    "log_ollama_mini": "Ollamaミニバッチ: {n} 件…",
+    "log_ollama_mini_failed": "ミニバッチ失敗 — 1件ずつ処理します。",
+    "log_api_error_prefix": "APIエラー: {exc}",
+    "log_batch_complete": "バッチ完了。翻訳済み合計: {done}"
 }

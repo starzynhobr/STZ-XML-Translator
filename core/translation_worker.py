@@ -72,52 +72,69 @@ class TranslationWorker:
     # Batch translation (background thread)
     # ------------------------------------------------------------------
 
+    def _s(self, key: str, **kwargs) -> str:
+        """Return a translated log string from config, falling back to Portuguese."""
+        _fallbacks = {
+            "checkpoint_loaded":   "Checkpoint carregado: {n} traduções retomadas.",
+            "all_done":            "Todos os itens já estão traduzidos no checkpoint.",
+            "batch_start":        "Iniciando tradução em lote: {total} itens pendentes.",
+            "sending_gemini":     "Enviando lote de {n} itens para a API Gemini…",
+            "cancelled":          "Tradução cancelada pelo usuário.",
+            "batch_failed":       "Falha no lote — interrompendo tradução.",
+            "items_skipped":      "AVISO: {n} item(ns) pulados pela IA neste lote.",
+            "ollama_mini":        "Mini-lote Ollama: {n} itens…",
+            "ollama_mini_failed": "Mini-lote falhou — tentando item a item.",
+            "api_error":          "ERRO na API: {exc}",
+            "batch_count":        "Lote concluído. Total traduzido: {done}",
+            "final_done":         "Tradução em lote finalizada.",
+        }
+        strings = self._config.get("_strings", {})
+        template = strings.get(key) or _fallbacks.get(key, key)
+        try:
+            return template.format(**kwargs) if kwargs else template
+        except (KeyError, IndexError):
+            return template
+
     def _run(self) -> None:
         project = self._project
 
         loaded = project.load_checkpoint(self.CHECKPOINT_FILE)
         if loaded:
-            self._on_log(f"Checkpoint carregado: {loaded} traduções retomadas.")
+            self._on_log(self._s("checkpoint_loaded", n=loaded))
 
         pending = project.get_pending_entries()
         if not pending:
-            self._on_log("Todos os itens já estão traduzidos no checkpoint.")
+            self._on_log(self._s("all_done"))
             self._on_done()
             return
 
         total = len(pending)
-        self._on_log(f"Iniciando tradução em lote: {total} itens pendentes.")
+        self._on_log(self._s("batch_start", total=total))
 
         service = self._config.get("service", "Gemini")
 
         for i in range(0, total, self.BATCH_SIZE):
             if self._cancel_event.is_set():
-                self._on_log("Tradução cancelada pelo usuário.")
+                self._on_log(self._s("cancelled"))
                 self._on_done()
                 return
 
             batch = pending[i : i + self.BATCH_SIZE]
 
             if service == "Gemini":
-                # Mark the whole batch as "translating" before the API call so
-                # the user gets immediate visual feedback that work is happening.
                 if self._on_batch_start:
                     self._on_batch_start([e.xpath for e in batch])
-                self._on_log(
-                    f"Enviando lote de {len(batch)} itens para a API Gemini…"
-                )
+                self._on_log(self._s("sending_gemini", n=len(batch)))
 
                 results = self._translate_batch_gemini(batch)
 
-                # Check cancel immediately after the blocking API call returns —
-                # the user may have clicked Cancel while waiting for the response.
                 if self._cancel_event.is_set():
-                    self._on_log("Tradução cancelada pelo usuário.")
+                    self._on_log(self._s("cancelled"))
                     self._on_done()
                     return
 
                 if results is None:
-                    self._on_log("Falha no lote — interrompendo tradução.")
+                    self._on_log(self._s("batch_failed"))
                     break
 
                 skipped = 0
@@ -130,13 +147,9 @@ class TranslationWorker:
                         skipped += 1
 
                 if skipped:
-                    self._on_log(f"AVISO: {skipped} item(ns) pulados pela IA neste lote.")
+                    self._on_log(self._s("items_skipped", n=skipped))
 
             else:
-                # Ollama uses mini-batches of up to 15 short texts per request
-                # to amortise per-call overhead. Falls back to sequential when
-                # a text is long (>= 400 chars) or the batch response is unparseable.
-                # DeepL and Azure always use the sequential path.
                 OLLAMA_MINI = 15
                 OLLAMA_MAX_LEN = 400
 
@@ -144,7 +157,7 @@ class TranslationWorker:
                 idx = 0
                 while idx < len(batch):
                     if self._cancel_event.is_set():
-                        self._on_log("Tradução cancelada pelo usuário.")
+                        self._on_log(self._s("cancelled"))
                         self._on_done()
                         return
 
@@ -154,7 +167,7 @@ class TranslationWorker:
                             if self._on_batch_start:
                                 self._on_batch_start([e.xpath for e in mini])
                             if len(mini) > 1:
-                                self._on_log(f"Mini-lote Ollama: {len(mini)} itens…")
+                                self._on_log(self._s("ollama_mini", n=len(mini)))
                             results = translate_batch_ollama(mini, self._config)
                             if results is not None:
                                 for entry in mini:
@@ -164,11 +177,9 @@ class TranslationWorker:
                                         self._on_entry_translated(entry.xpath, text)
                                 idx += len(mini)
                                 continue
-                            # Batch parse failed — fall through to single-item for this entry
                             if len(mini) > 1:
-                                self._on_log("Mini-lote falhou — tentando item a item.")
+                                self._on_log(self._s("ollama_mini_failed"))
 
-                    # Single-item path (DeepL, Azure, or Ollama fallback)
                     entry = batch[idx]
                     if self._on_batch_start:
                         self._on_batch_start([entry.xpath])
@@ -177,7 +188,7 @@ class TranslationWorker:
                         project.set_translation(entry.xpath, text, status="done")
                         self._on_entry_translated(entry.xpath, text)
                     except Exception as exc:
-                        self._on_log(f"ERRO na API: {exc}")
+                        self._on_log(self._s("api_error", exc=exc))
                         failed = True
                         break
                     idx += 1
@@ -187,18 +198,16 @@ class TranslationWorker:
 
             project.save_checkpoint(self.CHECKPOINT_FILE)
             done, _ = project.stats()
-            self._on_log(f"Lote concluído. Total traduzido: {done}")
+            self._on_log(self._s("batch_count", done=done))
 
             if i + self.BATCH_SIZE < total:
-                # Use wait() instead of sleep() so cancel during the inter-batch
-                # pause takes effect immediately instead of waiting the full delay.
                 cancelled = self._cancel_event.wait(timeout=self.BATCH_DELAY_SECONDS)
                 if cancelled:
-                    self._on_log("Tradução cancelada pelo usuário.")
+                    self._on_log(self._s("cancelled"))
                     self._on_done()
                     return
 
-        self._on_log("Tradução em lote finalizada.")
+        self._on_log(self._s("final_done"))
         self._on_done()
 
     def _translate_batch_gemini(self, batch) -> dict[str, str] | None:

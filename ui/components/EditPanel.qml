@@ -664,24 +664,24 @@ Pane {
             id: approveBtn
             text: vm.strings["approve_button"] ?? "✅ Confirmar Tradução Selecionada"
             Layout.fillWidth: true
-            Layout.preferredHeight: 38
+            Layout.preferredHeight: 34
             enabled: root.xpath !== "" && !vm.isTranslating
             HoverHandler { cursorShape: approveBtn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
             background: Rectangle {
                 color: approveBtn.enabled
-                    ? (approveBtn.hovered ? Theme.successHover : Theme.success)
+                    ? (approveBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
                     : Theme.bgBase
                 radius: 4
-                border.color: approveBtn.enabled ? "transparent" : Theme.borderSubtle
+                border.color: approveBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
                 border.width: 1
                 Behavior on color { ColorAnimation { duration: 100 } }
             }
             contentItem: Label {
                 text: approveBtn.text
-                color: approveBtn.enabled ? Theme.onSuccess : Theme.textDisabled
+                color: approveBtn.enabled ? Theme.textPrimary : Theme.textDisabled
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                font.weight: Font.Medium
+                font.weight: Font.Normal
                 font.pixelSize: 12
             }
             onClicked: vm.approveTranslation(root.xpath, translationArea.text)
@@ -692,24 +692,24 @@ Pane {
             id: approveAllBtn
             text: vm.strings["approve_all_button"] ?? "✅ Confirmar Todas as Traduções"
             Layout.fillWidth: true
-            Layout.preferredHeight: 38
+            Layout.preferredHeight: 34
             enabled: vm.hasXmlPath && !vm.isTranslating
             HoverHandler { cursorShape: approveAllBtn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
             background: Rectangle {
                 color: approveAllBtn.enabled
-                    ? (approveAllBtn.hovered ? "#1a6fc4" : Theme.primary)
+                    ? (approveAllBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
                     : Theme.bgBase
                 radius: 4
-                border.color: approveAllBtn.enabled ? "transparent" : Theme.borderSubtle
+                border.color: approveAllBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
                 border.width: 1
                 Behavior on color { ColorAnimation { duration: 100 } }
             }
             contentItem: Label {
                 text: approveAllBtn.text
-                color: approveAllBtn.enabled ? Theme.onPrimary : Theme.textDisabled
+                color: approveAllBtn.enabled ? Theme.textPrimary : Theme.textDisabled
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
-                font.weight: Font.Medium
+                font.weight: Font.Normal
                 font.pixelSize: 12
             }
             onClicked: vm.approveAllTranslations()

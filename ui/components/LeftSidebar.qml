@@ -303,68 +303,36 @@ Pane {
                 placeholderText: "ex: bio"
                 Layout.fillWidth: true
                 Layout.leftMargin: 12; Layout.rightMargin: 12
-                Layout.bottomMargin: 10
+                Layout.bottomMargin: 8
                 onCommitted: function(tag) { vm.setTargetTag(tag) }
             }
 
-            // ── Preset quick buttons (Save + Load) ────────────────────────
-            Row {
+            // ── Reload ────────────────────────────────────────────────────
+            AppButton {
+                id: reloadBtn
+                text: vm.strings["reload_button"] ?? "Recarregar"
                 Layout.fillWidth: true
                 Layout.leftMargin: 12; Layout.rightMargin: 12
                 Layout.bottomMargin: 10
-                spacing: 6
-
-                AppButton {
-                    id: savePresetBtn
-                    text: vm.strings["save_preset_button"] ?? "💾 Salvar Preset"
-                    width: (parent.width - parent.spacing) / 2
-                    enabled: vm.hasXmlPath && parentTagCombo.value !== "" && targetTagCombo.value !== ""
-                    font.pixelSize: 11
-                    onClicked: {
-                        savePresetLabelField.text = ""
-                        savePresetFileField.text = vm.loadedFileName
-                        savePresetDialog.open()
-                    }
-                    background: Rectangle {
-                        color: savePresetBtn.enabled
-                            ? (savePresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
-                            : Theme.bgBase
-                        radius: 4
-                        border.color: savePresetBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
-                        border.width: 1
-                        Behavior on color { ColorAnimation { duration: 100 } }
-                    }
-                    contentItem: Label {
-                        text: savePresetBtn.text
-                        color: savePresetBtn.enabled ? Theme.textPrimary : Theme.textDisabled
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font: savePresetBtn.font
-                        elide: Text.ElideRight
-                    }
+                enabled: vm.hasXmlPath && !vm.isTranslating
+                onClicked: vm.reloadXml()
+                ToolTip.visible: hovered; ToolTip.delay: 400
+                ToolTip.text: vm.strings["reload_button"] ?? "Recarregar"
+                background: Rectangle {
+                    color: reloadBtn.enabled
+                        ? (reloadBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
+                        : Theme.bgBase
+                    radius: 4
+                    border.color: reloadBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
+                    border.width: 1
+                    Behavior on color { ColorAnimation { duration: 100 } }
                 }
-
-                AppButton {
-                    id: loadPresetBtn
-                    text: vm.strings["load_preset_button"] ?? "📂 Carregar Preset"
-                    width: (parent.width - parent.spacing) / 2
-                    font.pixelSize: 11
-                    onClicked: loadPresetDialog.open()
-                    background: Rectangle {
-                        color: loadPresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2
-                        radius: 4
-                        border.color: Theme.borderModerate
-                        border.width: 1
-                        Behavior on color { ColorAnimation { duration: 100 } }
-                    }
-                    contentItem: Label {
-                        text: loadPresetBtn.text
-                        color: Theme.textPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font: loadPresetBtn.font
-                        elide: Text.ElideRight
-                    }
+                contentItem: Label {
+                    text: reloadBtn.text
+                    color: reloadBtn.enabled ? Theme.textPrimary : Theme.textDisabled
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    font: reloadBtn.font
                 }
             }
 
@@ -716,35 +684,6 @@ Pane {
                         Layout.bottomMargin: 14
                     }
 
-                    // ── Reload ────────────────────────────────────────────
-                    AppButton {
-                        id: reloadBtn
-                        text: vm.strings["reload_button"] ?? "Recarregar"
-                        Layout.fillWidth: true
-                        Layout.leftMargin: 18; Layout.rightMargin: 18
-                        Layout.bottomMargin: 18
-                        enabled: vm.hasXmlPath && !vm.isTranslating
-                        onClicked: vm.reloadXml()
-                        ToolTip.visible: hovered; ToolTip.delay: 400
-                        ToolTip.text: vm.strings["reload_button"] ?? "Recarregar"
-
-                        background: Rectangle {
-                            color: reloadBtn.enabled
-                                ? (reloadBtn.hovered ? Theme.bgSurface3 : Theme.secondary)
-                                : Theme.bgBase
-                            radius: 4
-                            border.color: reloadBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
-                            border.width: 1
-                            Behavior on color { ColorAnimation { duration: 100 } }
-                        }
-                        contentItem: Label {
-                            text: reloadBtn.text
-                            color: reloadBtn.enabled ? Theme.onSecondary : Theme.textDisabled
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            font: reloadBtn.font
-                        }
-                    }
                 }
             }
         }
@@ -1114,11 +1053,30 @@ Pane {
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     delegate: Rectangle {
+                        id: presetDelegate
                         width: ListView.view.width
                         height: 60
                         radius: 6
                         color: Theme.bgSurface1
                         border.color: Theme.borderSubtle; border.width: 1
+
+                        TapHandler {
+                            acceptedButtons: Qt.RightButton
+                            onTapped: presetContextMenu.popup()
+                        }
+
+                        Menu {
+                            id: presetContextMenu
+                            MenuItem {
+                                text: "✏️  Renomear"
+                                onTriggered: {
+                                    renameField.text = modelData.label ?? ""
+                                    renameField.selectAll()
+                                    renamePopup.presetId = modelData.preset_id ?? 0
+                                    renamePopup.open()
+                                }
+                            }
+                        }
 
                         RowLayout {
                             anchors { fill: parent; leftMargin: 12; rightMargin: 8; topMargin: 6; bottomMargin: 6 }
@@ -1243,6 +1201,98 @@ Pane {
                 }
             }
         }
+    }
+
+    // ── Rename Preset Popup ───────────────────────────────────────────────
+    Popup {
+        id: renamePopup
+        parent: Overlay.overlay
+        anchors.centerIn: Overlay.overlay
+        width: 320
+        height: renameContent.implicitHeight + 40
+        padding: 0; modal: true
+        closePolicy: Popup.CloseOnEscape
+
+        property var presetId: 0
+
+        background: Rectangle {
+            color: Theme.bgSurface2; radius: 8
+            border.color: Theme.borderModerate; border.width: 1
+        }
+
+        ColumnLayout {
+            id: renameContent
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            anchors.margins: 20
+            spacing: 12
+
+            Label {
+                text: "✏️  Renomear Preset"
+                font.pixelSize: 14; font.weight: Font.Medium
+                color: Theme.textPrimary
+            }
+
+            TextField {
+                id: renameField
+                Layout.fillWidth: true
+                color: Theme.textInput
+                placeholderTextColor: Theme.textPlaceholder
+                background: Rectangle {
+                    color: Theme.bgInput; radius: 4
+                    border.color: renameField.activeFocus ? Theme.borderFocus : Theme.borderInput
+                    border.width: renameField.activeFocus ? 2 : 1
+                }
+                Keys.onReturnPressed: {
+                    vm.renameTagPreset(renamePopup.presetId, renameField.text)
+                    renamePopup.close()
+                }
+                Keys.onEscapePressed: renamePopup.close()
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Item { Layout.fillWidth: true }
+
+                AppButton {
+                    text: vm.strings["dialog_cancel_button"] ?? "Cancelar"
+                    onClicked: renamePopup.close()
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                        radius: 4; border.color: Theme.borderModerate; border.width: 1
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text; color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter; font: parent.font
+                    }
+                }
+
+                AppButton {
+                    text: "OK"
+                    onClicked: {
+                        vm.renameTagPreset(renamePopup.presetId, renameField.text)
+                        renamePopup.close()
+                    }
+                    background: Rectangle {
+                        color: parent.hovered ? Theme.primaryHover : Theme.primary
+                        radius: 4
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+                    contentItem: Label {
+                        text: parent.text; color: Theme.onPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter; font: parent.font
+                    }
+                }
+            }
+
+            Item { height: 2 }
+        }
+
+        onOpened: renameField.forceActiveFocus()
     }
 
     // ── FolderDialog for global game folder ──────────────────────────────

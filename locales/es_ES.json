@@ -156,5 +156,13 @@
     "translation_context_tooltip": "Ej: \"Marvel Comics, superhero game\"\n\"Skyrim, medieval fantasy RPG\"\n\nPrefiere inglés para mejores resultados.\nUsa el Glosario para fijar términos específicos.",
     "settings_tooltip": "Configuración",
     "settings_title": "Configuración",
-    "presets_section_title": "Presets de Etiquetas"
+    "presets_section_title": "Presets de Etiquetas",
+    "log_mass_translation_start": "Iniciando traducción por lotes: {total} elementos pendientes.",
+    "log_checkpoint_loaded": "Checkpoint cargado: {n} traducciones reanudadas.",
+    "log_sending_gemini": "Enviando lote de {n} elementos a la API Gemini…",
+    "log_items_skipped": "AVISO: {n} elemento(s) omitido(s) por la IA en este lote.",
+    "log_ollama_mini": "Mini-lote Ollama: {n} elementos…",
+    "log_ollama_mini_failed": "Mini-lote fallido — intentando uno a uno.",
+    "log_api_error_prefix": "ERROR de API: {exc}",
+    "log_batch_complete": "Lote completado. Total traducido: {done}"
 }

@@ -464,9 +464,9 @@ class AppViewModel(QObject):
     @Slot()
     def approveAllTranslations(self) -> None:
         for entry in self._ctrl.project.entries.values():
-            if entry.translation and entry.translation.strip() and entry.status != "done":
+            if entry.translation and entry.translation.strip():
                 self._ctrl.project.set_translation(entry.xpath, entry.translation, status="done")
-                self._table.update_entry(entry.xpath, entry.translation, "done")
+        self._table.refresh_all(self._ctrl.project.entries)
         done, total = self._ctrl.project.stats()
         self.progressChanged.emit(done, total)
 
@@ -480,7 +480,7 @@ class AppViewModel(QObject):
         if self._is_single_translating:
             return  # already running, ignore extra clicks
         xpath = self._selected_xpath
-        config = self._ctrl.build_translation_config(self._selected_model_label, self._models)
+        config = self._ctrl.build_translation_config(self._selected_model_label, self._models, self._i18n)
 
         self._is_single_translating = True
         self.singleTranslatingChanged.emit(True)
@@ -506,7 +506,7 @@ class AppViewModel(QObject):
             self.errorOccurred.emit(self._i18n.get("log_api_key_needed"))
             return
         self._set_translating(True)
-        config = self._ctrl.build_translation_config(self._selected_model_label, self._models)
+        config = self._ctrl.build_translation_config(self._selected_model_label, self._models, self._i18n)
 
         def on_batch_start(xpaths: list[str]) -> None:
             # Mark rows yellow ("translating") so the user sees activity
@@ -822,6 +822,15 @@ class AppViewModel(QObject):
         if ok:
             self.tagPresetsChanged.emit()
             self.logAppended.emit(self._i18n.get("log_preset_deleted"))
+
+    @Slot("qlonglong", str)
+    def renameTagPreset(self, preset_id: int, new_label: str) -> None:
+        """Change only the label of a preset."""
+        if not new_label.strip():
+            return
+        ok = self._ctrl.rename_tag_preset(preset_id, new_label.strip())
+        if ok:
+            self.tagPresetsChanged.emit()
 
     @Slot()
     def exportPresets(self) -> None:

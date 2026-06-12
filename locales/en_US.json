@@ -156,5 +156,13 @@
     "translation_context_tooltip": "Ex: \"Marvel Comics, superhero game\"\n\"Skyrim, medieval fantasy RPG\"\n\nKeep it short and in English for best results.\nUse the Glossary to lock specific terms.",
     "settings_tooltip": "Settings",
     "settings_title": "Settings",
-    "presets_section_title": "Tag Presets"
+    "presets_section_title": "Tag Presets",
+    "log_mass_translation_start": "Starting batch translation: {total} pending items.",
+    "log_checkpoint_loaded": "Checkpoint loaded: {n} translations resumed.",
+    "log_sending_gemini": "Sending batch of {n} items to Gemini API…",
+    "log_items_skipped": "WARNING: {n} item(s) skipped by AI in this batch.",
+    "log_ollama_mini": "Ollama mini-batch: {n} items…",
+    "log_ollama_mini_failed": "Mini-batch failed — trying one by one.",
+    "log_api_error_prefix": "API ERROR: {exc}",
+    "log_batch_complete": "Batch done. Total translated: {done}"
 }

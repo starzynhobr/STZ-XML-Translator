@@ -356,12 +356,12 @@ class AppController:
     # Translation config builder
     # ------------------------------------------------------------------
 
-    def build_translation_config(self, model_label: str, models_available: dict) -> dict:
+    def build_translation_config(self, model_label: str, models_available: dict, i18n=None) -> dict:
         """Builds the config dict expected by TranslationWorker / translate_text."""
         model_info = models_available.get(model_label, (self.preferred_model_id, 60, False))
         model_id = model_info[0]
         meta = self.translation_target
-        return {
+        cfg: dict = {
             "service": self.preferred_provider,
             "api_key": self.api_key,
             "model": model_id if self.preferred_provider == "Gemini" else self.ollama_model,
@@ -372,6 +372,22 @@ class AppController:
             "translation_context": self.translation_context,
             "ollama_thinking": self.ollama_thinking,
         }
+        if i18n:
+            cfg["_strings"] = {
+                "checkpoint_loaded":   i18n.get("log_checkpoint_loaded"),
+                "all_done":            i18n.get("log_translation_already_complete"),
+                "batch_start":         i18n.get("log_mass_translation_start"),
+                "sending_gemini":      i18n.get("log_sending_gemini"),
+                "cancelled":           i18n.get("log_mass_translation_cancelled"),
+                "batch_failed":        i18n.get("log_batch_fail"),
+                "items_skipped":       i18n.get("log_items_skipped"),
+                "ollama_mini":         i18n.get("log_ollama_mini"),
+                "ollama_mini_failed":  i18n.get("log_ollama_mini_failed"),
+                "api_error":           i18n.get("log_api_error_prefix"),
+                "batch_count":         i18n.get("log_batch_complete"),
+                "final_done":          i18n.get("log_mass_translation_done"),
+            }
+        return cfg
 
     # ------------------------------------------------------------------
     # Batch translation
@@ -491,6 +507,15 @@ class AppController:
         """Remove the preset with the given id. Returns True on success."""
         presets = [p for p in self.get_tag_presets() if p.get("id") != preset_id]
         return self._write_presets(presets)
+
+    def rename_tag_preset(self, preset_id: int, new_label: str) -> bool:
+        """Change only the label of an existing preset. Returns True on success."""
+        presets = self.get_tag_presets()
+        for p in presets:
+            if p.get("id") == preset_id:
+                p["label"] = new_label
+                return self._write_presets(presets)
+        return False
 
     def update_preset_folder(self, preset_id: int, folder: str) -> bool:
         """Set or clear the root folder for an existing preset. Returns True on success."""
