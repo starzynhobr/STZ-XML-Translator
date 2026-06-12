@@ -40,7 +40,7 @@ Pane {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 34
         color: uiLangFooterMouse.containsMouse ? Theme.bgSurface2 : Theme.bgSurface1
-        radius: 6   // match Pane radius at the bottom
+        radius: 6
         clip: true
 
         Rectangle {
@@ -79,7 +79,6 @@ Pane {
             onClicked: uiLangPopup.open()
         }
 
-        // Language picker popup — opens upward from the footer
         Popup {
             id: uiLangPopup
             y: -Math.min(root.localeNames.length * 34 + 8, 200) - 4
@@ -136,8 +135,48 @@ Pane {
         }
     }
 
+    // ── Gear icon — top-right of sidebar ─────────────────────────────────
+    Item {
+        id: gearRow
+        anchors { top: parent.top; left: parent.left; right: parent.right }
+        height: 30
+
+        Rectangle {
+            id: gearBtn
+            anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
+            width: 26; height: 26; radius: 5
+            color: gearMouse.containsMouse ? Theme.bgSurface2 : "transparent"
+
+            Behavior on color { ColorAnimation { duration: 100 } }
+
+            Text {
+                anchors.centerIn: parent
+                text: "⚙"
+                font.pixelSize: 14
+                color: gearMouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
+            }
+
+            ToolTip.visible: gearMouse.containsMouse
+            ToolTip.text: vm.strings["settings_tooltip"] ?? "Configurações"
+            ToolTip.delay: 500
+
+            MouseArea {
+                id: gearMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: settingsDrawer.open()
+            }
+        }
+    }
+
+    // ── Main scrollable content (clean — only essential elements) ─────────
     ScrollView {
-        anchors { left: parent.left; right: parent.right; top: parent.top; bottom: uiLangFooter.top }
+        anchors {
+            top: gearRow.bottom
+            left: parent.left; right: parent.right
+            bottom: uiLangFooter.top
+        }
         contentWidth: availableWidth
         clip: true
 
@@ -145,19 +184,18 @@ Pane {
             width: parent.width
             spacing: 0
 
-            // ---- Carregar XML (ação primária) ----
+            // ── Carregar XML ──────────────────────────────────────────────
             AppButton {
                 text: vm.strings["load_xml_button"] ?? "Load XML"
                 highlighted: true
                 enabled: !vm.isTranslating
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.topMargin: 16
-                Layout.bottomMargin: vm.loadedFileName ? 4 : 6
+                Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.topMargin: 10
+                Layout.bottomMargin: vm.loadedFileName ? 3 : 10
                 onClicked: vm.loadXml(parentTagCombo.value, targetTagCombo.value)
             }
 
-            // Nome do arquivo carregado — só aparece quando há arquivo
             Label {
                 visible: vm.loadedFileName !== ""
                 text: vm.loadedFileName
@@ -166,79 +204,32 @@ Pane {
                 elide: Text.ElideMiddle
                 horizontalAlignment: Text.AlignHCenter
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 6
+                Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 10
             }
 
-            // Glossary
-            AppButton {
-                text: vm.strings["manage_glossary_button"] ?? "Glossary"
-                Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 16
-                onClicked: glossaryDialog.open()
-            }
-
-            // ---- Separador ----
+            // ── Separator ─────────────────────────────────────────────────
             Rectangle {
                 height: 1; color: Theme.borderSubtle
-                Layout.fillWidth: true; Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 12
+                Layout.fillWidth: true; Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 10
             }
 
-            // ---- Import / Export ----
-            Label {
-                text: vm.strings["export_import_section_title"] ?? "Export / Import"
-                font.pixelSize: 12
-                font.weight: Font.Medium
-                color: Theme.textSecondary
-                Layout.leftMargin: 16
-                Layout.bottomMargin: 2
-            }
-            Label {
-                text: vm.strings["export_import_section_subtitle"] ?? "Translation backup (.json, .csv)"
-                font.pixelSize: 10
-                color: Theme.textDisabled
-                Layout.leftMargin: 16
-                Layout.bottomMargin: 8
-            }
-
-            GridLayout {
-                columns: 2
-                Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 16
-                columnSpacing: 6
-                rowSpacing: 6
-
-                AppButton { text: vm.strings["export_json_button"] ?? "Export JSON"; Layout.fillWidth: true; font.pixelSize: 12; onClicked: vm.exportJson("") }
-                AppButton { text: vm.strings["export_csv_button"]  ?? "Export CSV";  Layout.fillWidth: true; font.pixelSize: 12; onClicked: vm.exportCsv("")  }
-                AppButton { text: vm.strings["import_json_button"] ?? "Import JSON"; Layout.fillWidth: true; font.pixelSize: 12; enabled: !vm.isTranslating; onClicked: vm.importJson("") }
-                AppButton { text: vm.strings["import_csv_button"]  ?? "Import CSV";  Layout.fillWidth: true; font.pixelSize: 12; enabled: !vm.isTranslating; onClicked: vm.importCsv("")  }
-            }
-
-            // ---- Separador ----
-            Rectangle {
-                height: 1; color: Theme.borderSubtle
-                Layout.fillWidth: true; Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 12
-            }
-
-            // ---- Translation target language ----
+            // ── Translation target language ───────────────────────────────
             Label {
                 text: vm.strings["translate_to_label"] ?? "Traduzir para:"
                 font.pixelSize: 11
                 color: Theme.textSecondary
-                Layout.leftMargin: 16
-                Layout.bottomMargin: 2
+                Layout.leftMargin: 12
+                Layout.bottomMargin: 3
             }
             ComboBox {
                 id: targetLangCombo
                 model: root.localeNames
                 currentIndex: root.currentTargetIdx
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 12
+                Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 10
                 onActivated: vm.setTranslationTarget(root.localeCodes[currentIndex])
 
                 contentItem: Text {
@@ -270,26 +261,24 @@ Pane {
                 }
             }
 
-            // ---- Tag fields ----
+            // ── Tag Pai ───────────────────────────────────────────────────
             Label {
                 text: vm.strings["parent_tag_label"] ?? "Parent Tag"
-                font.pixelSize: 12
+                font.pixelSize: 11
                 color: Theme.textSecondary
-                Layout.leftMargin: 16
-                Layout.bottomMargin: 2
+                Layout.leftMargin: 12
+                Layout.bottomMargin: 3
             }
             TagComboBox {
                 id: parentTagCombo
                 suggestions: vm.parentTags
-                // Enable as soon as a file is chosen (even before entries load).
                 enabled: vm.hasXmlPath
                 placeholderText: "ex: baseVillain"
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
+                Layout.leftMargin: 12; Layout.rightMargin: 12
                 Layout.bottomMargin: 8
                 onCommitted: function(tag) { vm.selectParentTag(tag) }
 
-                // Sync fields when tags are set (e.g. after Recarregar).
                 Connections {
                     target: vm
                     function onSelectedTagChanged(parentTag, targetTag) {
@@ -299,12 +288,13 @@ Pane {
                 }
             }
 
+            // ── Tag Alvo ──────────────────────────────────────────────────
             Label {
                 text: vm.strings["target_tag_label"] ?? "Target Tag"
-                font.pixelSize: 12
+                font.pixelSize: 11
                 color: Theme.textSecondary
-                Layout.leftMargin: 16
-                Layout.bottomMargin: 2
+                Layout.leftMargin: 12
+                Layout.bottomMargin: 3
             }
             TagComboBox {
                 id: targetTagCombo
@@ -312,19 +302,18 @@ Pane {
                 enabled: vm.hasXmlPath
                 placeholderText: "ex: bio"
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 8
+                Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 10
                 onCommitted: function(tag) { vm.setTargetTag(tag) }
             }
 
-            // ---- Preset action row ----
+            // ── Preset quick buttons (Save + Load) ────────────────────────
             Row {
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 6
+                Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 10
                 spacing: 6
 
-                // Save current tag pair as a named preset
                 AppButton {
                     id: savePresetBtn
                     text: vm.strings["save_preset_button"] ?? "💾 Salvar Preset"
@@ -355,7 +344,6 @@ Pane {
                     }
                 }
 
-                // Browse and apply saved presets
                 AppButton {
                     id: loadPresetBtn
                     text: vm.strings["load_preset_button"] ?? "📂 Carregar Preset"
@@ -380,101 +368,17 @@ Pane {
                 }
             }
 
-            // ---- Preset export / import row ----
-            Row {
-                Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 6
-                spacing: 6
-
-                AppButton {
-                    id: exportPresetBtn
-                    text: vm.strings["export_preset_button"] ?? "📤 Exportar Presets"
-                    width: (parent.width - parent.spacing) / 2
-                    enabled: vm.tagPresets.length > 0
-                    font.pixelSize: 11
-                    onClicked: vm.exportPresets()
-                    background: Rectangle {
-                        color: exportPresetBtn.enabled
-                            ? (exportPresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
-                            : Theme.bgBase
-                        radius: 4
-                        border.color: exportPresetBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
-                        border.width: 1
-                        Behavior on color { ColorAnimation { duration: 100 } }
-                    }
-                    contentItem: Label {
-                        text: exportPresetBtn.text
-                        color: exportPresetBtn.enabled ? Theme.textPrimary : Theme.textDisabled
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font: exportPresetBtn.font
-                        elide: Text.ElideRight
-                    }
-                }
-
-                AppButton {
-                    id: importPresetBtn
-                    text: vm.strings["import_preset_button"] ?? "📥 Importar Presets"
-                    width: (parent.width - parent.spacing) / 2
-                    font.pixelSize: 11
-                    onClicked: vm.importPresets()
-                    background: Rectangle {
-                        color: importPresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2
-                        radius: 4
-                        border.color: Theme.borderModerate
-                        border.width: 1
-                        Behavior on color { ColorAnimation { duration: 100 } }
-                    }
-                    contentItem: Label {
-                        text: importPresetBtn.text
-                        color: Theme.textPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font: importPresetBtn.font
-                        elide: Text.ElideRight
-                    }
-                }
-            }
-
-            AppButton {
-                id: reloadBtn
-                text: vm.strings["reload_button"] ?? "Reload"
-                Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 16
-                enabled: vm.hasXmlPath && !vm.isTranslating
-                onClicked: vm.reloadXml()
-
-                background: Rectangle {
-                    color: reloadBtn.enabled
-                        ? (reloadBtn.hovered ? Theme.bgSurface3 : Theme.secondary)
-                        : Theme.bgBase
-                    radius: 4
-                    border.color: reloadBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
-                    border.width: 1
-                    Behavior on color { ColorAnimation { duration: 100 } }
-                }
-                contentItem: Label {
-                    text: reloadBtn.text
-                    color: reloadBtn.enabled ? Theme.onSecondary : Theme.textDisabled
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    font: reloadBtn.font
-                }
-            }
-
-            // ---- Separador ----
+            // ── Separator ─────────────────────────────────────────────────
             Rectangle {
                 height: 1; color: Theme.borderModerate
-                Layout.fillWidth: true; Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 12
+                Layout.fillWidth: true; Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 10
             }
 
-            // ---- Progress ----
+            // ── Progress ──────────────────────────────────────────────────
             Label {
                 text: vm.strings["progress_label"] ?? "Progress"
-                font.pixelSize: 12
+                font.pixelSize: 11
                 color: Theme.textSecondary
                 Layout.alignment: Qt.AlignHCenter
                 Layout.bottomMargin: 4
@@ -484,7 +388,7 @@ Pane {
                 id: progressBar
                 value: root.progressTotal > 0 ? root.progressDone / root.progressTotal : 0
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
+                Layout.leftMargin: 12; Layout.rightMargin: 12
                 Layout.bottomMargin: 4
 
                 background: Rectangle {
@@ -506,19 +410,19 @@ Pane {
                     var tpl = vm.strings["stats_template"] ?? "Done: {done} / {total}"
                     return tpl.replace("{done}", root.progressDone).replace("{total}", root.progressTotal)
                 }
-                font.pixelSize: 12
+                font.pixelSize: 11
                 color: Theme.textSecondary
                 Layout.alignment: Qt.AlignHCenter
-                Layout.bottomMargin: 16
+                Layout.bottomMargin: 10
             }
 
-            // ---- Export XML ----
+            // ── Export XML ────────────────────────────────────────────────
             AppButton {
                 id: exportXmlBtn
                 text: vm.strings["export_button"] ?? "Export XML"
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 8
+                Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 6
                 enabled: root.progressDone > 0 && !vm.isTranslating
                 onClicked: vm.exportXml("")
 
@@ -541,20 +445,19 @@ Pane {
                 }
             }
 
-            // ---- separator to visually distance Save In Place ----
             Rectangle {
                 height: 1; color: Theme.borderSubtle
-                Layout.fillWidth: true; Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 8
+                Layout.fillWidth: true; Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 6
             }
 
-            // ---- Save In Place (neutral style — the modal is the warning) ----
+            // ── Save In Place ─────────────────────────────────────────────
             AppButton {
                 id: saveInPlaceBtn
                 text: vm.strings["save_inplace_button"] ?? "💾 Save to Current File"
                 Layout.fillWidth: true
-                Layout.leftMargin: 16; Layout.rightMargin: 16
-                Layout.bottomMargin: 16
+                Layout.leftMargin: 12; Layout.rightMargin: 12
+                Layout.bottomMargin: 12
                 enabled: vm.entryCount > 0 && !vm.isTranslating
                 onClicked: overwriteDialog.open()
 
@@ -578,16 +481,282 @@ Pane {
         }
     }
 
-    // ---- Overwrite confirmation dialog ----
-    // Everything lives in a single contentItem (ColumnLayout) to avoid the
-    // header/footer height-calculation bugs in FluentWinUI3's Dialog style.
+    // ── Settings Drawer ───────────────────────────────────────────────────
+    // Slides in from the left edge of the window overlay.
+    Popup {
+        id: settingsDrawer
+        parent: Overlay.overlay
+        x: 0; y: 0
+        width: 270
+        height: parent ? parent.height : 700
+        modal: true
+        padding: 0
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        enter: Transition {
+            NumberAnimation { property: "x"; from: -270; to: 0; duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 180 }
+        }
+        exit: Transition {
+            NumberAnimation { property: "x"; from: 0; to: -270; duration: 180; easing.type: Easing.InCubic }
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 150 }
+        }
+
+        background: Rectangle {
+            color: Theme.bgSurface1
+            // Right border shadow line
+            Rectangle {
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                width: 1; color: Theme.borderModerate
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            // ── Drawer header ─────────────────────────────────────────────
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: 52
+
+                Label {
+                    anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 18 }
+                    text: vm.strings["settings_title"] ?? "Configurações"
+                    font.pixelSize: 15; font.weight: Font.DemiBold
+                    color: Theme.textPrimary
+                }
+
+                Rectangle {
+                    id: drawerCloseBtn
+                    anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                    width: 26; height: 26; radius: 5
+                    color: drawerCloseMouse.containsMouse ? Theme.bgSurface3 : "transparent"
+                    Behavior on color { ColorAnimation { duration: 80 } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "✕"; font.pixelSize: 12
+                        color: drawerCloseMouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
+                    }
+                    MouseArea {
+                        id: drawerCloseMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: settingsDrawer.close()
+                    }
+                }
+
+                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
+            }
+
+            // ── Scrollable drawer content ─────────────────────────────────
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                clip: true
+
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 0
+
+                    // ── Export / Import section ───────────────────────────
+                    Label {
+                        text: vm.strings["export_import_section_title"] ?? "Exportar / Importar"
+                        font.pixelSize: 12; font.weight: Font.Medium
+                        color: Theme.textSecondary
+                        Layout.leftMargin: 18
+                        Layout.topMargin: 16
+                        Layout.bottomMargin: 2
+                    }
+                    Label {
+                        text: vm.strings["export_import_section_subtitle"] ?? "Backup de traduções (.json, .csv)"
+                        font.pixelSize: 10; color: Theme.textDisabled
+                        Layout.leftMargin: 18
+                        Layout.bottomMargin: 8
+                    }
+
+                    GridLayout {
+                        columns: 2
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 18; Layout.rightMargin: 18
+                        Layout.bottomMargin: 16
+                        columnSpacing: 6; rowSpacing: 6
+
+                        AppButton {
+                            text: vm.strings["export_json_button"] ?? "Exportar JSON"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            onClicked: vm.exportJson("")
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["export_json_button"] ?? "Exportar JSON"
+                        }
+                        AppButton {
+                            text: vm.strings["export_csv_button"] ?? "Exportar CSV"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            onClicked: vm.exportCsv("")
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["export_csv_button"] ?? "Exportar CSV"
+                        }
+                        AppButton {
+                            text: vm.strings["import_json_button"] ?? "Importar JSON"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            enabled: !vm.isTranslating; onClicked: vm.importJson("")
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["import_json_button"] ?? "Importar JSON"
+                        }
+                        AppButton {
+                            text: vm.strings["import_csv_button"] ?? "Importar CSV"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            enabled: !vm.isTranslating; onClicked: vm.importCsv("")
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["import_csv_button"] ?? "Importar CSV"
+                        }
+                    }
+
+                    // ── Separator ─────────────────────────────────────────
+                    Rectangle {
+                        height: 1; color: Theme.borderSubtle
+                        Layout.fillWidth: true; Layout.leftMargin: 18; Layout.rightMargin: 18
+                        Layout.bottomMargin: 14
+                    }
+
+                    // ── Presets section ───────────────────────────────────
+                    Label {
+                        text: vm.strings["presets_section_title"] ?? "Presets de Tags"
+                        font.pixelSize: 12; font.weight: Font.Medium
+                        color: Theme.textSecondary
+                        Layout.leftMargin: 18
+                        Layout.bottomMargin: 8
+                    }
+
+                    GridLayout {
+                        columns: 2
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 18; Layout.rightMargin: 18
+                        Layout.bottomMargin: 16
+                        columnSpacing: 6; rowSpacing: 6
+
+                        AppButton {
+                            id: drawerSavePresetBtn
+                            text: vm.strings["save_preset_button"] ?? "💾 Salvar Preset"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            enabled: vm.hasXmlPath && parentTagCombo.value !== "" && targetTagCombo.value !== ""
+                            onClicked: {
+                                savePresetLabelField.text = ""
+                                savePresetFileField.text = vm.loadedFileName
+                                savePresetDialog.open()
+                            }
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["save_preset_button"] ?? "Salvar Preset"
+                            background: Rectangle {
+                                color: drawerSavePresetBtn.enabled
+                                    ? (drawerSavePresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
+                                    : Theme.bgBase
+                                radius: 4
+                                border.color: drawerSavePresetBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
+                                border.width: 1
+                                Behavior on color { ColorAnimation { duration: 100 } }
+                            }
+                            contentItem: Label {
+                                text: drawerSavePresetBtn.text
+                                color: drawerSavePresetBtn.enabled ? Theme.textPrimary : Theme.textDisabled
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font: drawerSavePresetBtn.font
+                                elide: Text.ElideRight
+                            }
+                        }
+                        AppButton {
+                            text: vm.strings["load_preset_button"] ?? "📂 Carregar Preset"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            onClicked: loadPresetDialog.open()
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["load_preset_button"] ?? "Carregar Preset"
+                        }
+                        AppButton {
+                            id: drawerExportPresetBtn
+                            text: vm.strings["export_preset_button"] ?? "📤 Exportar Presets"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            enabled: vm.tagPresets.length > 0
+                            onClicked: vm.exportPresets()
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["export_preset_button"] ?? "Exportar Presets"
+                            background: Rectangle {
+                                color: drawerExportPresetBtn.enabled
+                                    ? (drawerExportPresetBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)
+                                    : Theme.bgBase
+                                radius: 4
+                                border.color: drawerExportPresetBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
+                                border.width: 1
+                                Behavior on color { ColorAnimation { duration: 100 } }
+                            }
+                            contentItem: Label {
+                                text: drawerExportPresetBtn.text
+                                color: drawerExportPresetBtn.enabled ? Theme.textPrimary : Theme.textDisabled
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font: drawerExportPresetBtn.font
+                                elide: Text.ElideRight
+                            }
+                        }
+                        AppButton {
+                            text: vm.strings["import_preset_button"] ?? "📥 Importar Presets"
+                            Layout.fillWidth: true; font.pixelSize: 12
+                            onClicked: vm.importPresets()
+                            ToolTip.visible: hovered; ToolTip.delay: 400
+                            ToolTip.text: vm.strings["import_preset_button"] ?? "Importar Presets"
+                        }
+                    }
+
+                    // ── Separator ─────────────────────────────────────────
+                    Rectangle {
+                        height: 1; color: Theme.borderSubtle
+                        Layout.fillWidth: true; Layout.leftMargin: 18; Layout.rightMargin: 18
+                        Layout.bottomMargin: 14
+                    }
+
+                    // ── Reload ────────────────────────────────────────────
+                    AppButton {
+                        id: reloadBtn
+                        text: vm.strings["reload_button"] ?? "Recarregar"
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 18; Layout.rightMargin: 18
+                        Layout.bottomMargin: 18
+                        enabled: vm.hasXmlPath && !vm.isTranslating
+                        onClicked: vm.reloadXml()
+                        ToolTip.visible: hovered; ToolTip.delay: 400
+                        ToolTip.text: vm.strings["reload_button"] ?? "Recarregar"
+
+                        background: Rectangle {
+                            color: reloadBtn.enabled
+                                ? (reloadBtn.hovered ? Theme.bgSurface3 : Theme.secondary)
+                                : Theme.bgBase
+                            radius: 4
+                            border.color: reloadBtn.enabled ? Theme.borderModerate : Theme.borderSubtle
+                            border.width: 1
+                            Behavior on color { ColorAnimation { duration: 100 } }
+                        }
+                        contentItem: Label {
+                            text: reloadBtn.text
+                            color: reloadBtn.enabled ? Theme.onSecondary : Theme.textDisabled
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font: reloadBtn.font
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Overwrite confirmation dialog ─────────────────────────────────────
     Dialog {
         id: overwriteDialog
         modal: true
         anchors.centerIn: Overlay.overlay
         width: 360
         padding: 0
-        // Close on Esc OR clicking outside the dialog
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         background: Rectangle {
@@ -600,7 +769,6 @@ Pane {
         contentItem: ColumnLayout {
             spacing: 0
 
-            // ── Header ──────────────────────────────────────────────────
             Item {
                 Layout.fillWidth: true
                 implicitHeight: 56
@@ -625,7 +793,6 @@ Pane {
                 }
             }
 
-            // ── Body ─────────────────────────────────────────────────────
             Label {
                 Layout.fillWidth: true
                 Layout.topMargin: 20
@@ -643,12 +810,7 @@ Pane {
                 lineHeight: 1.5
             }
 
-            // ── Footer ───────────────────────────────────────────────────
-            Rectangle {
-                Layout.fillWidth: true
-                height: 1
-                color: Theme.borderSubtle
-            }
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
 
             Row {
                 Layout.alignment: Qt.AlignRight
@@ -657,7 +819,6 @@ Pane {
                 Layout.bottomMargin: 12
                 spacing: 8
 
-                // Neutral "close" — no destructive connotation
                 AppButton {
                     text: vm.strings["close_button"] ?? "Close"
                     onClicked: overwriteDialog.close()
@@ -670,15 +831,13 @@ Pane {
                         Behavior on color { ColorAnimation { duration: 100 } }
                     }
                     contentItem: Label {
-                        text: parent.text
-                        color: Theme.textPrimary
+                        text: parent.text; color: Theme.textPrimary
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         font: parent.font
                     }
                 }
 
-                // Destructive confirm — stays red as the clear danger signal
                 AppButton {
                     text: vm.strings["save_inplace_confirm_action"] ?? "Overwrite"
                     onClicked: {
@@ -692,19 +851,17 @@ Pane {
                         Behavior on color { ColorAnimation { duration: 100 } }
                     }
                     contentItem: Label {
-                        text: parent.text
-                        color: "#ffffff"
+                        text: parent.text; color: "#ffffff"
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
-                        font.weight: Font.Medium
-                        font.pixelSize: 13
+                        font.weight: Font.Medium; font.pixelSize: 13
                     }
                 }
             }
         }
     }
 
-    // ── Save Preset Dialog ────────────────────────────────────────────────────
+    // ── Save Preset Dialog ────────────────────────────────────────────────
     Dialog {
         id: savePresetDialog
         modal: true
@@ -721,7 +878,6 @@ Pane {
         contentItem: ColumnLayout {
             spacing: 0
 
-            // ── Header
             Item {
                 Layout.fillWidth: true; implicitHeight: 52
                 Label {
@@ -735,13 +891,11 @@ Pane {
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
             }
 
-            // ── Body
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.margins: 20
                 spacing: 10
 
-                // Tag pair pill
                 Rectangle {
                     Layout.fillWidth: true
                     height: 32; radius: 4
@@ -757,7 +911,6 @@ Pane {
                     }
                 }
 
-                // Description (required)
                 Label {
                     text: vm.strings["preset_label_field"] ?? "Descrição *"
                     font.pixelSize: 11; color: Theme.textSecondary
@@ -776,7 +929,6 @@ Pane {
                     }
                 }
 
-                // File hint — auto-filled from the loaded XML
                 Label {
                     text: vm.gameFolder
                         ? (vm.strings["preset_file_relative_label"] ?? "Arquivo (relativo à pasta do jogo)")
@@ -799,7 +951,6 @@ Pane {
                 }
             }
 
-            // ── Footer
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
             Row {
                 Layout.alignment: Qt.AlignRight
@@ -855,7 +1006,7 @@ Pane {
         }
     }
 
-    // ── Load Preset Dialog ────────────────────────────────────────────────────
+    // ── Load Preset Dialog ────────────────────────────────────────────────
     Dialog {
         id: loadPresetDialog
         modal: true
@@ -872,7 +1023,6 @@ Pane {
         contentItem: ColumnLayout {
             spacing: 0
 
-            // ── Header
             Item {
                 Layout.fillWidth: true; implicitHeight: 52
                 Label {
@@ -886,7 +1036,7 @@ Pane {
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
             }
 
-            // ── Game folder row
+            // Game folder row
             Rectangle {
                 Layout.fillWidth: true
                 height: 44
@@ -943,12 +1093,11 @@ Pane {
             }
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
 
-            // ── Body — preset list
+            // Preset list
             Item {
                 Layout.fillWidth: true
                 implicitHeight: Math.min(Math.max(vm.tagPresets.length, 1) * 68 + 16, 300)
 
-                // Empty state
                 Label {
                     visible: vm.tagPresets.length === 0
                     anchors.centerIn: parent
@@ -975,7 +1124,6 @@ Pane {
                             anchors { fill: parent; leftMargin: 12; rightMargin: 8; topMargin: 6; bottomMargin: 6 }
                             spacing: 8
 
-                            // Info column
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
@@ -1002,12 +1150,10 @@ Pane {
                                         elide: Text.ElideRight
                                         Layout.maximumWidth: 100
                                     }
-                                    // Validity indicator — only shown when game_folder is set and file hint exists
                                     Label {
                                         visible: (modelData.file ?? "") !== "" && modelData.file_exists !== undefined
                                         text: modelData.file_exists ? "✓" : "✗"
-                                        font.pixelSize: 10
-                                        font.weight: Font.Medium
+                                        font.pixelSize: 10; font.weight: Font.Medium
                                         color: modelData.file_exists ? "#4ec94e" : Theme.danger
                                         ToolTip.visible: hoverStatus.containsMouse
                                         ToolTip.text: modelData.file_exists
@@ -1019,16 +1165,12 @@ Pane {
                                 }
                             }
 
-                            // Apply button
                             AppButton {
                                 text: vm.strings["preset_apply_button"] ?? "Aplicar"
                                 font.pixelSize: 11
                                 implicitWidth: 60; implicitHeight: 28
                                 onClicked: {
                                     var fileHint = modelData.file ?? ""
-                                    // Only ask for game folder when the hint is a relative
-                                    // path (no drive letter / leading slash) AND no game
-                                    // folder is set — absolute paths work without it.
                                     var isAbsolute = fileHint.length > 1 &&
                                         (fileHint[1] === ':' || fileHint[0] === '/')
                                     if (fileHint !== "" && !isAbsolute && vm.gameFolder === "") {
@@ -1057,7 +1199,6 @@ Pane {
                                 }
                             }
 
-                            // Delete button
                             AppButton {
                                 text: "🗑"
                                 font.pixelSize: 13
@@ -1081,7 +1222,6 @@ Pane {
                 }
             }
 
-            // ── Footer (load preset)
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
             Row {
                 Layout.alignment: Qt.AlignRight
@@ -1105,9 +1245,7 @@ Pane {
         }
     }
 
-    GlossaryDialog { id: glossaryDialog }
-
-    // ── FolderDialog for global game folder ──────────────────────────────────
+    // ── FolderDialog for global game folder ──────────────────────────────
     FolderDialog {
         id: gameFolderDialog
         title: vm.strings["preset_game_folder_tooltip"] ?? "Selecionar Pasta do Jogo"
@@ -1115,7 +1253,6 @@ Pane {
             var s = selectedFolder.toString()
             var path = s.startsWith("file:///") ? s.slice(8) : s
             vm.setGameFolder(path)
-            // If Apply was pending while waiting for folder, execute it now
             if (root.pendingApplyPreset !== null) {
                 var p = root.pendingApplyPreset
                 vm.applyTagPreset(
@@ -1131,7 +1268,7 @@ Pane {
         onRejected: root.pendingApplyPreset = null
     }
 
-    // ── Listen for multiple XML scan results ─────────────────────────────────
+    // ── Listen for multiple XML scan results ─────────────────────────────
     Connections {
         target: vm
         function onXmlPathsFound(paths) {
@@ -1140,7 +1277,7 @@ Pane {
         }
     }
 
-    // ── XML Picker Dialog (shown when folder scan finds multiple files) ───────
+    // ── XML Picker Dialog ─────────────────────────────────────────────────
     Dialog {
         id: xmlPickerDialog
         modal: true
@@ -1157,7 +1294,6 @@ Pane {
         contentItem: ColumnLayout {
             spacing: 0
 
-            // ── Header
             Item {
                 Layout.fillWidth: true; implicitHeight: 52
                 Label {
@@ -1171,7 +1307,6 @@ Pane {
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.borderSubtle }
             }
 
-            // ── Subtitle
             Label {
                 Layout.fillWidth: true
                 Layout.leftMargin: 20; Layout.rightMargin: 20; Layout.topMargin: 12
@@ -1180,7 +1315,6 @@ Pane {
                 wrapMode: Text.Wrap
             }
 
-            // ── File list
             Item {
                 Layout.fillWidth: true
                 Layout.topMargin: 8; Layout.bottomMargin: 8
@@ -1240,7 +1374,6 @@ Pane {
                 }
             }
 
-            // ── Footer
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
             Row {
                 Layout.alignment: Qt.AlignRight

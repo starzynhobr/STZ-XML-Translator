@@ -19,7 +19,7 @@ from PySide6.QtCore import (
     Slot,
 )
 from PySide6.QtCore import Property as QProperty
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QLineEdit
+from PySide6.QtWidgets import QFileDialog
 
 from core.app_controller import AppController, PROVIDER_URLS
 from core.i18n import I18nManager
@@ -130,6 +130,7 @@ class AppViewModel(QObject):
     translationContextChanged = Signal()     # fired when the translation context/theme changes
     xmlPathsFound    = Signal(list)          # multiple XML files found during folder scan
     translationTargetChanged = Signal()      # fired when translation target locale changes
+    apiKeyDialogRequested = Signal(str, str, str)  # (dialog_title, prompt_label, current_key)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -461,6 +462,15 @@ class AppViewModel(QObject):
         self.progressChanged.emit(done, total)
 
     @Slot()
+    def approveAllTranslations(self) -> None:
+        for entry in self._ctrl.project.entries.values():
+            if entry.translation and entry.translation.strip() and entry.status != "done":
+                self._ctrl.project.set_translation(entry.xpath, entry.translation, status="done")
+                self._table.update_entry(entry.xpath, entry.translation, "done")
+        done, total = self._ctrl.project.stats()
+        self.progressChanged.emit(done, total)
+
+    @Slot()
     def translateSelected(self) -> None:
         if not self._selected_xpath:
             return
@@ -713,25 +723,28 @@ class AppViewModel(QObject):
     @Slot()
     def configureApiKey(self) -> None:
         provider = self._ctrl.preferred_provider
-        text, ok = QInputDialog.getText(
-            None,
-            self._i18n.get("api_key_config"),
-            self._i18n.get("api_gemini_key"),
-            QLineEdit.Password,
-            self._ctrl.get_api_key(provider),
+        title = self._i18n.get("api_key_config_title").format(provider=provider)
+        prompt = self._i18n.get("api_key_prompt").format(provider=provider)
+        current = self._ctrl.get_api_key(provider) or ""
+        self.apiKeyDialogRequested.emit(title, prompt, current)
+
+    @Slot(str)
+    def submitApiKey(self, key: str) -> None:
+        key = key.strip()
+        if not key:
+            return
+        provider = self._ctrl.preferred_provider
+        self._ctrl.set_api_key(provider, key)
+        mid = self._ctrl.preferred_model_id
+        self._ctrl.save_config(
+            api_key=key,
+            model_label=self._selected_model_label,
+            model_id=mid,
+            provider=provider,
         )
-        if ok and text:
-            self._ctrl.set_api_key(provider, text.strip())
-            mid = self._ctrl.preferred_model_id
-            self._ctrl.save_config(
-                api_key=text.strip(),
-                model_label=self._selected_model_label,
-                model_id=mid,
-                provider=provider,
-            )
-            self.logAppended.emit(self._i18n.get("log_api_key_saved"))
-            if provider == "Gemini":
-                threading.Thread(target=self._fetch_models, daemon=True).start()
+        self.logAppended.emit(self._i18n.get("log_api_key_saved"))
+        if provider == "Gemini":
+            threading.Thread(target=self._fetch_models, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Slots — Glossary

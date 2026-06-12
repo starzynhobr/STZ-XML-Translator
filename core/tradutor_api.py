@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import re
 
 import deepl
 import requests
@@ -151,6 +153,34 @@ def _is_paid_tier(base: str) -> bool:
     return False
 
 
+def _strip_think(text: str) -> str:
+    """Remove <think>...</think> blocks produced by thinking-mode models."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
+def _ollama_post(url: str, data: dict, thinking: bool, timeout: int) -> dict:
+    """
+    POST to Ollama. If thinking=True and Ollama returns 400 (version too old or
+    model doesn't support think+format=json), retry without think.
+    """
+    if thinking:
+        # thinking mode is incompatible with format=json on older Ollama builds;
+        # drop format constraint and parse JSON manually from the response text
+        payload = {k: v for k, v in data.items() if k != "format"}
+        payload["think"] = True
+        try:
+            r = requests.post(url, json=payload, timeout=timeout)
+            if r.status_code == 400:
+                raise requests.HTTPError(response=r)
+            r.raise_for_status()
+            return r.json()
+        except requests.HTTPError:
+            logging.warning("Ollama thinking mode rejected (400) — retrying without think")
+    r = requests.post(url, json=data, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
 def _context_hint(config: dict) -> str:
     ctx = (config.get("translation_context") or "").strip()
     return f" This content is from: {ctx}." if ctx else ""
@@ -240,9 +270,7 @@ class OllamaService(TranslationService):
 
         response = requests.post(url, json=data, timeout=config.get("timeout", 120))
         response.raise_for_status()
-
-        response_json_text = response.json()["response"]
-        translated_dict = json.loads(response_json_text)
+        translated_dict = json.loads(response.json()["response"])
         return next(iter(translated_dict.values()))
 
 

@@ -10,8 +10,7 @@ Dialog {
     height: 440
     modal: true
 
-    x: (parent.width  - width)  / 2
-    y: (parent.height - height) / 2
+    anchors.centerIn: Overlay.overlay
 
     // Override Dialog background — FluentWinUI3 não herda dark palette
     background: Rectangle {

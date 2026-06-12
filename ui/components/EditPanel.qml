@@ -73,7 +73,7 @@ Pane {
             id: infoDialog
             modal: true
             anchors.centerIn: Overlay.overlay
-            width: 400
+            width: 500
             padding: 0
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
@@ -102,15 +102,19 @@ Pane {
                 // Scrollable tips
                 ScrollView {
                     Layout.fillWidth: true
-                    implicitHeight: 420
+                    implicitHeight: Math.min(
+                        Overlay.overlay ? Overlay.overlay.height * 0.72 : 520,
+                        520
+                    )
                     clip: true
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                     ColumnLayout {
-                        width: 400 - 24   // dialog width minus scrollbar gutter
+                        width: 500 - 24   // dialog width minus scrollbar gutter
                         spacing: 0
 
                         Repeater {
+                            id: tipsRepeater
                             model: [
                                 { icon: "📂", key: "info_tip_load_xml_title",  bodyKey: "info_tip_load_xml"  },
                                 { icon: "🏷️", key: "info_tip_tags_title",       bodyKey: "info_tip_tags"      },
@@ -118,22 +122,24 @@ Pane {
                                 { icon: "⚡", key: "info_tip_batch_title",      bodyKey: "info_tip_batch"     },
                                 { icon: "✏️", key: "info_tip_single_title",     bodyKey: "info_tip_single"    },
                                 { icon: "📤", key: "info_tip_save_title",       bodyKey: "info_tip_save"      },
+                                { icon: "🎯", key: "info_tip_context_title",    bodyKey: "info_tip_context"   },
+                                { icon: "📖", key: "info_tip_glossary_title",   bodyKey: "info_tip_glossary"  },
                             ]
 
                             delegate: ColumnLayout {
                                 Layout.fillWidth: true
-                                Layout.leftMargin: 20; Layout.rightMargin: 20
-                                Layout.topMargin: 14
-                                Layout.bottomMargin: 2
-                                spacing: 4
+                                Layout.leftMargin: 16; Layout.rightMargin: 16
+                                Layout.topMargin: 10
+                                Layout.bottomMargin: 0
+                                spacing: 3
 
                                 // Section title
                                 RowLayout {
                                     spacing: 6
-                                    Text { text: modelData.icon; font.pixelSize: 15 }
+                                    Text { text: modelData.icon; font.pixelSize: 14 }
                                     Label {
                                         text: vm.strings[modelData.key] ?? modelData.key
-                                        font.pixelSize: 14; font.weight: Font.DemiBold
+                                        font.pixelSize: 13; font.weight: Font.DemiBold
                                         color: Theme.textPrimary
                                     }
                                 }
@@ -142,23 +148,23 @@ Pane {
                                 Label {
                                     Layout.fillWidth: true
                                     text: vm.strings[modelData.bodyKey] ?? ""
-                                    font.pixelSize: 13
+                                    font.pixelSize: 12
                                     color: Theme.textSecondary
                                     wrapMode: Text.WordWrap
-                                    lineHeight: 1.5
+                                    lineHeight: 1.35
                                 }
 
                                 // Thin separator (except last item)
                                 Rectangle {
-                                    visible: index < 5
+                                    visible: index < tipsRepeater.count - 1
                                     Layout.fillWidth: true; height: 1
                                     color: Theme.borderSubtle
-                                    Layout.topMargin: 10
+                                    Layout.topMargin: 8
                                 }
                             }
                         }
 
-                        Item { implicitHeight: 16 }
+                        Item { implicitHeight: 12 }
                     }
                 }
 
@@ -324,6 +330,111 @@ Pane {
             onClicked: vm.configureApiKey()
         }
 
+        Connections {
+            target: vm
+            function onApiKeyDialogRequested(title, prompt, currentKey) {
+                apiKeyDialog.dialogTitle = title
+                apiKeyDialog.promptLabel = prompt
+                apiKeyField.text = currentKey
+                apiKeyDialog.open()
+            }
+        }
+
+        Popup {
+            id: apiKeyDialog
+            parent: Overlay.overlay
+            anchors.centerIn: Overlay.overlay
+            width: 420
+            height: apiKeyContent.implicitHeight + 40
+            padding: 0
+            modal: true
+            closePolicy: Popup.CloseOnEscape
+
+            property string dialogTitle: ""
+            property string promptLabel: ""
+
+            background: Rectangle {
+                color: Theme.bgSurface1
+                radius: 8
+                border.color: Theme.borderModerate
+                border.width: 1
+            }
+
+            ColumnLayout {
+                id: apiKeyContent
+                anchors { left: parent.left; right: parent.right; top: parent.top }
+                anchors.margins: 20
+                spacing: 14
+
+                Label {
+                    text: apiKeyDialog.dialogTitle
+                    font.pixelSize: 14
+                    font.weight: Font.Medium
+                    color: Theme.textPrimary
+                }
+
+                Label {
+                    text: apiKeyDialog.promptLabel
+                    color: Theme.textSecondary
+                    font.pixelSize: 12
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                TextField {
+                    id: apiKeyField
+                    Layout.fillWidth: true
+                    echoMode: TextInput.Password
+                    placeholderText: "••••••••••••••••••••"
+                    color: Theme.textInput
+                    placeholderTextColor: Theme.textPlaceholder
+                    background: Rectangle {
+                        color: Theme.bgInput
+                        radius: 4
+                        border.color: apiKeyField.activeFocus ? Theme.borderFocus : Theme.borderInput
+                        border.width: apiKeyField.activeFocus ? 2 : 1
+                    }
+                    Keys.onReturnPressed: {
+                        vm.submitApiKey(apiKeyField.text)
+                        apiKeyDialog.close()
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
+                    AppButton {
+                        text: vm.strings["dialog_cancel_button"] ?? "Cancelar"
+                        onClicked: apiKeyDialog.close()
+                    }
+
+                    AppButton {
+                        text: "OK"
+                        enabled: apiKeyField.text.trim().length > 0
+                        onClicked: {
+                            vm.submitApiKey(apiKeyField.text)
+                            apiKeyDialog.close()
+                        }
+                        background: Rectangle {
+                            color: parent.hovered ? Theme.primaryHover : Theme.primary
+                            radius: 4
+                            Behavior on color { ColorAnimation { duration: 100 } }
+                        }
+                        contentItem: Label {
+                            text: parent.text
+                            color: Theme.onPrimary
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font: parent.font
+                        }
+                    }
+                }
+            }
+        }
+
         // Dynamic link: get API key / install Ollama / etc.
         Label {
             text: vm.providerApiKeyLinkText
@@ -386,11 +497,35 @@ Pane {
         // ---- Separator ----
         Rectangle { height: 1; color: Theme.borderModerate; Layout.fillWidth: true }
 
+        // ---- Glossary button ----
+        AppButton {
+            text: vm.strings["manage_glossary_button"] ?? "📖 Gerenciar Glossário"
+            Layout.fillWidth: true
+            onClicked: glossaryDialog.open()
+            background: Rectangle {
+                color: parent.hovered ? Theme.bgSurface3 : Theme.bgSurface2
+                radius: 4
+                border.color: Theme.borderModerate; border.width: 1
+                Behavior on color { ColorAnimation { duration: 100 } }
+            }
+            contentItem: Label {
+                text: parent.text; color: Theme.textPrimary
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font: parent.font
+            }
+        }
+
         // ---- Translation context / theme ----
         Label {
             text: vm.strings["translation_context_label"] ?? "Contexto / Tema"
             font.pixelSize: 12
             color: Theme.textSecondary
+
+            HoverHandler { id: contextLabelHover }
+            ToolTip.visible: contextLabelHover.hovered
+            ToolTip.delay: 500
+            ToolTip.text: vm.strings["translation_context_tooltip"] ?? "Ex: \"Marvel Comics, superhero game\"\n\"Skyrim, medieval fantasy RPG\"\n\nEscreva em inglês para melhor resultado.\nUse o Glossário para fixar termos específicos."
         }
         TextField {
             id: contextField
@@ -524,13 +659,13 @@ Pane {
 
         Item { Layout.fillHeight: true }
 
-        // ---- Approve / Confirm ----
+        // ---- Approve selected ----
         AppButton {
             id: approveBtn
-            text: vm.strings["approve_button"] ?? "Confirm Translation"
+            text: vm.strings["approve_button"] ?? "✅ Confirmar Tradução Selecionada"
             Layout.fillWidth: true
-            Layout.preferredHeight: 42
-            enabled: root.xpath !== ""
+            Layout.preferredHeight: 38
+            enabled: root.xpath !== "" && !vm.isTranslating
             HoverHandler { cursorShape: approveBtn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
             background: Rectangle {
                 color: approveBtn.enabled
@@ -547,9 +682,39 @@ Pane {
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 font.weight: Font.Medium
-                font.pixelSize: 13
+                font.pixelSize: 12
             }
             onClicked: vm.approveTranslation(root.xpath, translationArea.text)
         }
+
+        // ---- Approve all ----
+        AppButton {
+            id: approveAllBtn
+            text: vm.strings["approve_all_button"] ?? "✅ Confirmar Todas as Traduções"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 38
+            enabled: vm.hasXmlPath && !vm.isTranslating
+            HoverHandler { cursorShape: approveAllBtn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor }
+            background: Rectangle {
+                color: approveAllBtn.enabled
+                    ? (approveAllBtn.hovered ? "#1a6fc4" : Theme.primary)
+                    : Theme.bgBase
+                radius: 4
+                border.color: approveAllBtn.enabled ? "transparent" : Theme.borderSubtle
+                border.width: 1
+                Behavior on color { ColorAnimation { duration: 100 } }
+            }
+            contentItem: Label {
+                text: approveAllBtn.text
+                color: approveAllBtn.enabled ? Theme.onPrimary : Theme.textDisabled
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                font.weight: Font.Medium
+                font.pixelSize: 12
+            }
+            onClicked: vm.approveAllTranslations()
+        }
     }
+
+    GlossaryDialog { id: glossaryDialog }
 }

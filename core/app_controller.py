@@ -61,6 +61,7 @@ class AppController:
         # Falls back to preferred_locale for backward compat on first run.
         self.preferred_translation_target: str = ""
         self.ollama_model: str = "llama3"
+        self.ollama_thinking: bool = False
         self.translation_context: str = ""
         self._api_keys: dict[str, str] = {}
         self.translation_target: dict[str, str] = TRANSLATION_TARGETS["pt"].copy()
@@ -88,6 +89,7 @@ class AppController:
             self.preferred_model_id = data.get("preferred_model_id", self.preferred_model_id)
             self.preferred_model_label = data.get("preferred_model", "")
             self.ollama_model = data.get("ollama_model", "llama3")
+            self.ollama_thinking = data.get("ollama_thinking", False)
             self.translation_context = data.get("translation_context", "")
             # Per-provider keys (new format)
             self._api_keys = data.get("api_keys", {})
@@ -124,6 +126,7 @@ class AppController:
             "preferred_model": model_label,
             "preferred_model_id": model_id,
             "ollama_model": self.ollama_model,
+            "ollama_thinking": self.ollama_thinking,
             "translation_context": self.translation_context,
             "api_keys": {k: v for k, v in self._api_keys.items() if v},
             "game_folder": self.game_folder,
@@ -367,6 +370,7 @@ class AppController:
             "deepl_lang": meta.get("deepl", "PT-BR"),
             "source_label": self.source_language_label,
             "translation_context": self.translation_context,
+            "ollama_thinking": self.ollama_thinking,
         }
 
     # ------------------------------------------------------------------
