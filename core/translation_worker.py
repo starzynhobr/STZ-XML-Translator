@@ -24,7 +24,10 @@ class TranslationWorker:
     @property
     def _checkpoint_file(self) -> str:
         from core.project import TranslationProject
-        return TranslationProject.checkpoint_path(self._project.xml_path)
+        return TranslationProject.checkpoint_path(
+            self._project.xml_path,
+            self._config.get("target_lang", ""),
+        )
     BATCH_SIZE = 120
     BATCH_DELAY_SECONDS = 5
 
@@ -276,4 +279,3 @@ class TranslationWorker:
         except Exception as exc:
             self._on_log(f"ERRO na API: {exc}")
             return None
-

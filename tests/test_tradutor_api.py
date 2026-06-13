@@ -6,6 +6,7 @@ import pytest
 
 from core.tradutor_api import (
     AVAILABLE_SERVICES,
+    GeminiService,
     _candidate_model_names,
     carregar_glossario,
     traduzir_arquivo_json,
@@ -85,6 +86,22 @@ class TestTranslateText:
 
         mock_service.translate.assert_called_once_with("Hello", {"api_key": "fake"})
         assert result == "Olá"
+
+    def test_gemini_prompt_detects_source_language(self):
+        model = MagicMock()
+        model.generate_content.return_value.text = "Radiation"
+
+        with patch("core.tradutor_api.get_gemini_model", return_value=model):
+            result = GeminiService().translate(
+                "Radiação",
+                {"api_key": "fake", "model": "gemini-test", "target_label": "English", "target_lang": "en"},
+            )
+
+        prompt = model.generate_content.call_args.args[0]
+        assert "to English" in prompt
+        assert "Detect the source language automatically" in prompt
+        assert "from English to English" not in prompt
+        assert result == "Radiation"
 
     def test_api_exception_returns_error_string(self):
         mock_service = MagicMock()

@@ -459,7 +459,21 @@ class AppViewModel(QObject):
     @Slot(str)
     def setTranslationTarget(self, locale_code: str) -> None:
         """Change the AI translation target language only. Does NOT affect UI strings."""
+        previous_target = self._ctrl.translation_target.get("code", "")
         self._ctrl.save_preferred_translation_target(locale_code)
+        next_target = self._ctrl.translation_target.get("code", "")
+        if previous_target != next_target and self._ctrl.project.entries:
+            self._ctrl.project.reset_translations()
+            restored = 0
+            if self._ctrl.project.xml_path:
+                restored = self._ctrl.project.load_checkpoint(self._ctrl.current_checkpoint_path())
+            self._table.refresh_all(self._ctrl.project.entries)
+            done, total = self._ctrl.project.stats()
+            self.progressChanged.emit(done, total)
+            if restored:
+                self.logAppended.emit(
+                    self._i18n.get("log_checkpoint_loaded", n=restored)
+                )
         self.translationTargetChanged.emit()
         # Rebuild model labels with new locale tier strings
         self.modelsChanged.emit(self.modelLabels)
@@ -625,9 +639,10 @@ class AppViewModel(QObject):
 
             # Auto-restore checkpoint for this specific file.
             from core.project import TranslationProject
-            cp_path = TranslationProject.checkpoint_path(path)
+            target_lang = self._ctrl.translation_target.get("code", "")
+            cp_path = TranslationProject.checkpoint_path(path, target_lang)
             _legacy = "textos_traduzidos_checkpoint.json"
-            if not os.path.exists(cp_path) and os.path.exists(_legacy):
+            if target_lang == "pt" and not os.path.exists(cp_path) and os.path.exists(_legacy):
                 import shutil
                 shutil.copy2(_legacy, cp_path)
             restored = self._ctrl.project.load_checkpoint(cp_path)

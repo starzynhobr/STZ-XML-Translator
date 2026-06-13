@@ -402,6 +402,13 @@ class AppController:
             }
         return cfg
 
+    def current_checkpoint_path(self) -> str:
+        """Checkpoint path for the currently loaded XML and translation target."""
+        return self.project.checkpoint_path(
+            self.project.xml_path,
+            self.translation_target.get("code", ""),
+        )
+
     # ------------------------------------------------------------------
     # Batch translation
     # ------------------------------------------------------------------
@@ -431,7 +438,7 @@ class AppController:
         translations to pending/empty. Returns the number of entries reset.
         """
         if self.project.xml_path:
-            checkpoint = self.project.checkpoint_path(self.project.xml_path)
+            checkpoint = self.current_checkpoint_path()
             try:
                 os.remove(checkpoint)
             except (FileNotFoundError, OSError):

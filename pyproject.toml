@@ -1,12 +1,43 @@
 [project]
-name = "game-xml-translator"
+name = "stz-xml-translator"
 version = "1.2.0"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 description = "Desktop tool for translating game XML files using AI translation services"
+dependencies = [
+    "PySide6>=6.7.0",
+    "azure-ai-translation-text==1.0.1",
+    "azure-core==1.35.1",
+    "deepl==1.22.0",
+    "lxml==6.0.1",
+    "requests==2.32.5",
+]
 
+[tool.setuptools]
+packages = []   # app desktop compilado com Nuitka, não uma biblioteca Python
+
+[project.optional-dependencies]
+dev = [
+    "nuitka==4.1.2",
+    "ordered-set>=4.1.0",
+    "pillow>=10.0.0",
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+    "zstandard>=0.23.0",
+]
+
+# ── Pytest ────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths    = ["tests"]
+python_files  = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts      = "-v"
+
+# ── Ruff ─────────────────────────────────────────────────────
 [tool.ruff]
-line-length = 100
-exclude = ["scripts/"]
+line-length    = 100
+target-version = "py312"
+exclude        = ["scripts/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
@@ -20,10 +51,3 @@ ignore = [
 
 [tool.ruff.format]
 quote-style = "double"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = "-v"

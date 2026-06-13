@@ -122,6 +122,14 @@ class TestTranslationProjectStats:
 
 
 class TestCheckpoint:
+    def test_checkpoint_path_is_target_specific(self):
+        pt = TranslationProject.checkpoint_path(FIXTURE_XML, "pt")
+        en = TranslationProject.checkpoint_path(FIXTURE_XML, "en")
+
+        assert pt != en
+        assert "_pt_" in pt
+        assert "_en_" in en
+
     def test_save_and_load_checkpoint(self, tmp_path, loaded_project):
         xpaths = list(loaded_project.entries.keys())
         loaded_project.set_translation(xpaths[0], "Herói da Luz")

@@ -43,10 +43,10 @@ class TestI18nManager:
 
     def test_load_language_switches_locale(self):
         mgr = I18nManager(language="pt_BR")
-        pt_title = mgr.get("window_title")
+        pt_button = mgr.get("load_xml_button")
         mgr.load_language("en_US")
-        en_title = mgr.get("window_title")
-        assert pt_title != en_title
+        en_button = mgr.get("load_xml_button")
+        assert pt_button != en_button
 
     @pytest.mark.parametrize("lang", SUPPORTED_LANGUAGES)
     def test_language_name_key_exists(self, lang):

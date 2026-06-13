@@ -11,8 +11,8 @@ import deepl
 import requests
 from azure.ai.translation.text import TextTranslationClient
 from azure.core.credentials import AzureKeyCredential
-from google import genai
-from google.genai.errors import ClientError as GeminiClientError
+
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 
 class TranslationService:
@@ -49,6 +49,8 @@ def _candidate_model_names(model_name: str):
             names.append(model_name + "-latest")
     # Fallback chain: -latest aliases resolve to current stable at call time
     names.extend([
+        "gemini-1.5-flash",
+        "models/gemini-1.5-flash",
         "models/gemini-flash-lite-latest",
         "models/gemini-flash-latest",
         "models/gemini-2.0-flash-lite",
@@ -62,31 +64,68 @@ def _candidate_model_names(model_name: str):
 
 
 class _GeminiWrapper:
-    """Duck-type wrapper matching the old GenerativeModel.generate_content() interface."""
+    """Small REST-backed wrapper matching the old generate_content() interface."""
 
-    def __init__(self, client: genai.Client, model_name: str):
-        self._client = client
+    def __init__(self, model_name: str, api_key: str):
         self._model_name = model_name
+        self._api_key = api_key
 
     def generate_content(self, prompt: str):
-        return self._client.models.generate_content(model=self._model_name, contents=prompt)
+        model_name = _normalize_gemini_model_name(self._model_name)
+        url = f"{GEMINI_API_BASE}/{model_name}:generateContent"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        response = _gemini_request("POST", url, self._api_key, json=payload, timeout=120)
+        parts = (
+            response.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [])
+        )
+        text = "".join(str(part.get("text", "")) for part in parts).strip()
+        if not text:
+            raise RuntimeError("Gemini retornou uma resposta vazia.")
+        return _GeminiResponse(text)
+
+
+class _GeminiResponse:
+    def __init__(self, text: str):
+        self.text = text
+
+
+def _gemini_api_key(api_key: str = "") -> str:
+    key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+    if not key:
+        raise RuntimeError("Chave da API Gemini ausente.")
+    return key
+
+
+def _normalize_gemini_model_name(model_name: str) -> str:
+    if model_name.startswith("models/") or model_name.startswith("tunedModels/"):
+        return model_name
+    return f"models/{model_name}"
+
+
+def _gemini_request(method: str, url: str, api_key: str, **kwargs) -> dict:
+    headers = kwargs.pop("headers", {})
+    headers["x-goog-api-key"] = _gemini_api_key(api_key)
+    headers.setdefault("Content-Type", "application/json")
+    response = requests.request(method, url, headers=headers, **kwargs)
+    response.raise_for_status()
+    return response.json()
 
 
 def get_gemini_model(model_name: str, api_key: str = "") -> _GeminiWrapper:
     """Returns a _GeminiWrapper for the first resolvable candidate model name."""
-    client = genai.Client(api_key=api_key) if api_key else genai.Client()
     last_error = None
     for candidate in _candidate_model_names(model_name):
         try:
-            client.models.get(model=candidate)
-            return _GeminiWrapper(client, candidate)
-        except GeminiClientError as exc:
-            last_error = exc
+            url = f"{GEMINI_API_BASE}/{_normalize_gemini_model_name(candidate)}"
+            _gemini_request("GET", url, api_key, timeout=30)
+            return _GeminiWrapper(candidate, api_key)
         except Exception as exc:
             last_error = exc
     # Fallback: return wrapper with the original name even if get() failed
     if last_error and model_name:
-        return _GeminiWrapper(client, model_name)
+        return _GeminiWrapper(model_name, api_key)
     if last_error:
         raise last_error
     raise RuntimeError("Nao foi possivel instanciar o modelo Gemini.")
@@ -100,21 +139,22 @@ def list_gemini_models(api_key: str) -> dict[str, tuple[str, int, bool]]:
     Sorted: free models first (-latest aliases, then stable flash), paid last.
     The caller is responsible for formatting the tier badge using i18n strings.
 
-    SDK note: the field is `supported_actions` (not `supported_generation_methods`,
-    which was the old REST name and is always None in the current SDK).
+    REST note: Google has exposed both `supportedGenerationMethods` and
+    `supportedActions` names across API surfaces, so accept either.
     """
     import re
 
-    client = genai.Client(api_key=api_key)
+    payload = _gemini_request("GET", f"{GEMINI_API_BASE}/models", api_key, timeout=30)
     _SKIP_KW = {"tts", "audio", "image", "embedding", "robotics", "computer", "live"}
 
     entries: list[tuple[int, int, int, int, str, str, int, bool]] = []
 
-    for model in client.models.list():
-        actions = getattr(model, "supported_actions", None) or []
+    for model in payload.get("models", []):
+        actions = model.get("supportedGenerationMethods") or model.get("supportedActions") or []
         if "generateContent" not in actions:
             continue
-        base = model.name.split("/")[-1]
+        model_name = model.get("name", "")
+        base = model_name.split("/")[-1]
         if not base.startswith("gemini-"):
             continue
         if any(kw in base for kw in _SKIP_KW):
@@ -123,14 +163,14 @@ def list_gemini_models(api_key: str) -> dict[str, tuple[str, int, bool]]:
             continue
 
         paid = _is_paid_tier(base)
-        label = _format_model_label(model.name)
+        label = _format_model_label(model_name)
         timeout = 120 if "pro" in base else 60
 
         sort_paid = 1 if paid else 0
         sort_latest = 0 if base.endswith("-latest") else 1
         sort_pro = 1 if "pro" in base else 0
         sort_preview = 1 if "preview" in base else 0
-        entries.append((sort_paid, sort_latest, sort_pro, sort_preview, label, model.name, timeout, paid))
+        entries.append((sort_paid, sort_latest, sort_pro, sort_preview, label, model_name, timeout, paid))
 
     entries.sort(key=lambda x: x[:4])
     return {label: (mid, timeout, paid) for *_, label, mid, timeout, paid in entries}
@@ -206,7 +246,6 @@ class GeminiService(TranslationService):
     def translate(self, text, config):
         target_lang = (config.get("target_lang") or "pt").lower()
         target_label = config.get("target_label", "Portuguese (Brazil)")
-        source_label = config.get("source_label", "English")
         api_key = config.get("api_key", "")
         context_hint = _context_hint(config)
 
@@ -234,7 +273,8 @@ class GeminiService(TranslationService):
         else:
             prompt = (
                 f"Act as a game localization specialist.{context_hint} "
-                f"Translate the following text from {source_label} to {target_label}: "
+                f"Translate the following text to {target_label}. "
+                "Detect the source language automatically. "
                 f'"{text}". Reply with the final text only.'
             )
 
@@ -413,6 +453,7 @@ AVAILABLE_SERVICES = {
     "Google Translate (Free)": GoogleTranslateFreeService(),
     "DeepL": DeepLService(),
     "Microsoft Azure": AzureService(),
+    "Llama 3 (Local)": OllamaService(),
     "Ollama (Local)": OllamaService(),
 }
 

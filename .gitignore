@@ -19,6 +19,7 @@ __pycache__/
 # Arquivos de log
 /LOGS/
 *.log
+debug_*.txt
 
 # Arquivos de configuração do VSCode
 .vscode/
@@ -29,6 +30,7 @@ config.json
 # Pastas de build do PyInstaller
 /dist/
 /build/
+*.egg-info/
 
 # Arquivos de especificação do PyInstaller
 *.spec
@@ -41,6 +43,21 @@ textos_traduzidos_checkpoint.json
 # Glossário do usuário
 scripts/glossario.json
 
+# Icone ICO gerado durante o build (fonte: assets/stz-xml.png)
+assets/icon.ico
+
+# Relatorio de compilacao Nuitka
+compilation-report.xml
+
+# MSIX packaging
+msix-staging/
+release/
+# Gerado pelo build-msix.ps1 a partir de assets/stz-xml.png
+msix/assets/
+msix-signing.pfx      # chave privada — NUNCA versionar
+*.msix
+# .cer pode ser commitado para distribuição — não ignorado aqui
+
 # Arquivos de build do Nuitka
 build_nuitka/
 nuitka_out/
@@ -52,6 +69,7 @@ nuitka_out/
 *.onefile-build/
 *.exe
 *.bin
+main_qt.cmd
 nuitka-crash-report*.xml
 
 # Dados de runtime gerados pelo app

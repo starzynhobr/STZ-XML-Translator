@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AppxManifest.xml — Template para MSIX do STZ XML Translator
+  Placeholders substituídos por build-msix.ps1:
+    {{AppId}}               ex: STZXMLTranslator
+    {{Version}}             ex: 1.2.0.0
+    {{PublisherCN}}         ex: CN=STZ Labs
+    {{PublisherDisplayName}} ex: STZ Labs
+    {{AppName}}             ex: STZ XML Translator
+    {{Description}}         ex: XML localization tool for game modders
+    {{ExecutableName}}      ex: STZXMLTranslator.exe
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="{{AppId}}"
+    Version="{{Version}}"
+    Publisher="{{PublisherCN}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>{{AppName}}</DisplayName>
+    <PublisherDisplayName>{{PublisherDisplayName}}</PublisherDisplayName>
+    <Description>{{Description}}</Description>
+    <Logo>assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!-- Windows 10 1809 mínimo (suporte a runFullTrust estável) -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+                 Executable="{{ExecutableName}}"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="{{AppName}}"
+        Description="{{Description}}"
+        BackgroundColor="transparent"
+        Square150x150Logo="assets\Square150x150Logo.png"
+        Square44x44Logo="assets\Square44x44Logo.png">
+        <uap:DefaultTile />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Desktop app: precisa de runFullTrust para acesso ao sistema de arquivos -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>

@@ -1,0 +1,142 @@
+# Required repository secrets:
+# CERT_PFX_BASE64 - base64-encoded .pfx signing certificate
+# CERT_PASSWORD   - password used when the .pfx was exported
+# GITHUB_TOKEN    - provided automatically by GitHub Actions
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: powershell
+
+jobs:
+  release:
+    name: Build and publish MSIX
+    runs-on: windows-latest
+
+    steps:
+      # Fetches the repository contents for the tagged release.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Installs the Python runtime used by the desktop app and test suite.
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Installs app and build dependencies from pyproject.toml.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      # Runs the test suite before any release artifact is built.
+      - name: Run tests
+        run: python -m pytest
+
+      # Converts the source PNG icon into the ICO file consumed by Nuitka.
+      - name: Prepare Windows icon
+        run: |
+          python -c "from PIL import Image; img=Image.open('assets/stz-xml.png').convert('RGBA'); img.save('assets/icon.ico', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      # Extracts the semantic version from the tag and derives the 4-part Windows version.
+      - name: Extract version from tag
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Release tag must use vX.Y.Z format. Got: ${{ github.ref_name }}"
+          }
+          $appVersion = "$version.0"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "VERSION=$version"
+          Write-Host "APP_VERSION=$appVersion"
+
+      # Builds the standalone executable with static Nuitka flags read from main_qt.py.
+      - name: Build executable with Nuitka
+        run: |
+          python -m nuitka `
+            --jobs=$env:NUMBER_OF_PROCESSORS `
+            --file-version=$env:APP_VERSION `
+            --product-version=$env:APP_VERSION `
+            main_qt.py
+
+      # Ensures Windows SDK tools required for MSIX packaging and signing are available.
+      - name: Install Windows SDK
+        run: |
+          function Test-SdkTools {
+            $sdkRoot = 'C:\Program Files (x86)\Windows Kits\10\bin'
+            if (-not (Test-Path $sdkRoot)) {
+              return $false
+            }
+
+            $makeAppx = Get-ChildItem -Path $sdkRoot -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -like '*\x64\*' } |
+              Select-Object -First 1
+            $signTool = Get-ChildItem -Path $sdkRoot -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -like '*\x64\*' } |
+              Select-Object -First 1
+
+            return ($null -ne $makeAppx -and $null -ne $signTool)
+          }
+
+          if (-not (Test-SdkTools)) {
+            choco install windows-sdk-10-version-2004-all -y --no-progress
+          }
+
+          if (-not (Test-SdkTools)) {
+            throw "Windows SDK tools makeappx.exe and signtool.exe were not found."
+          }
+
+      # Decodes the signing certificate from GitHub Secrets into a local PFX file.
+      - name: Import certificate from secrets
+        env:
+          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERT_PFX_BASE64)) {
+            throw "Missing CERT_PFX_BASE64 secret."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:CERT_PASSWORD)) {
+            throw "Missing CERT_PASSWORD secret."
+          }
+          [System.IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+
+      # Packages and signs the MSIX using the version derived from the release tag.
+      - name: Build MSIX package
+        env:
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+        run: |
+          .\build-msix.ps1 -Version "$env:APP_VERSION" -CertPath ".\cert.pfx" -CertPassword "$env:CERT_PASSWORD"
+
+      # Publishes the MSIX, public certificate, and install helper to the GitHub Release.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $msix = "release\STZXMLTranslator-$env:APP_VERSION.msix"
+          $cer = "release\STZXMLTranslator.cer"
+          $installer = "release\install-app.ps1"
+
+          foreach ($asset in @($msix, $cer, $installer)) {
+            if (-not (Test-Path $asset)) {
+              throw "Missing release asset: $asset"
+            }
+          }
+
+          gh release create "${{ github.ref_name }}" `
+            $msix `
+            $cer `
+            $installer `
+            --title "STZ XML Translator $env:VERSION" `
+            --notes "STZ XML Translator $env:VERSION" `
+            --latest

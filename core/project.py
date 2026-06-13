@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -97,19 +98,21 @@ class TranslationProject:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def checkpoint_path(xml_path: str) -> str:
+    def checkpoint_path(xml_path: str, target_lang: str = "") -> str:
         """Return a per-file checkpoint path inside the checkpoints/ folder.
 
-        Format: checkpoints/<stem>_<8-char hash>.json
-        The hash is derived from the absolute XML path, so two files with
-        the same name in different directories get different checkpoints.
+        Format: checkpoints/<stem>_<target>_<8-char hash>.json
+        The hash is derived from the absolute XML path and the optional target
+        language, so the same file can keep separate resume data per target.
         """
         abs_path = os.path.abspath(xml_path)
-        h = hashlib.md5(abs_path.encode()).hexdigest()[:8]
+        target = re.sub(r"[^a-z0-9_-]+", "_", (target_lang or "").lower()).strip("_")
+        h = hashlib.md5(f"{abs_path}|{target}".encode()).hexdigest()[:8]
         stem = os.path.splitext(os.path.basename(abs_path))[0]
         folder = "checkpoints"
         os.makedirs(folder, exist_ok=True)
-        return os.path.join(folder, f"{stem}_{h}.json")
+        suffix = f"_{target}" if target else ""
+        return os.path.join(folder, f"{stem}{suffix}_{h}.json")
 
     def save_checkpoint(self, path: str) -> bool:
         """Persist current translations to a JSON checkpoint file."""

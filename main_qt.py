@@ -2,6 +2,31 @@
 Entry point for STZ XML Translator (PySide6 + QML).
 Run: python main_qt.py
 """
+
+# nuitka-project: --standalone
+# nuitka-project: --enable-plugin=pyside6
+# nuitka-project: --include-qt-plugins=qml
+# nuitka-project: --msvc=latest
+# nuitka-project: --windows-console-mode=disable
+# nuitka-project: --lto=no
+# nuitka-project: --python-flag=no_docstrings
+# nuitka-project: --noinclude-pytest-mode=nofollow
+# nuitka-project: --noinclude-unittest-mode=nofollow
+# nuitka-project: --include-data-dir=ui=ui
+# nuitka-project: --include-data-dir=locales=locales
+# nuitka-project: --include-data-dir=assets=assets
+# nuitka-project: --include-data-files=scripts/glossario.json=scripts/glossario.json
+# nuitka-project: --nofollow-import-to=tests
+# nuitka-project: --nofollow-import-to=*.tests
+# nuitka-project: --nofollow-import-to=ruff
+# nuitka-project: --nofollow-import-to=pygments
+# nuitka-project: --assume-yes-for-downloads
+# nuitka-project: --output-filename=STZXMLTranslator.exe
+# nuitka-project: --output-dir=dist
+# nuitka-project: --windows-icon-from-ico=assets/icon.ico
+# nuitka-project: --company-name=STZ XML Translator
+# nuitka-project: --product-name=STZ XML Translator
+# nuitka-project: --file-description=STZ XML Translator -- XML localization tool for game modders
 import os
 import sys
 
