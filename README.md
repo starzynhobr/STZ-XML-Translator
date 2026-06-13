@@ -75,7 +75,7 @@ If you prefer to review it first, open `install-app.ps1` in a text editor before
 
 6. **Export** — use **Export Translated XML** to save a new file, or **💾 Save to Current File** to overwrite the original (a confirmation dialog appears). Saving in place auto-reloads the file.
 
-**Demo:** [Exporting and importing translations with JSON](https://www.youtube.com/watch?v=ahnqpZrGQe0)
+[![YouTube Demo](https://img.shields.io/badge/YouTube-JSON%20export%20%2F%20import%20demo-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=ahnqpZrGQe0)
 
 > Click the **ⓘ** button at the top-right of the tools panel for a built-in quick-reference guide.
 
