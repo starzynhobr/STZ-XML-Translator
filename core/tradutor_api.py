@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -13,6 +14,7 @@ from azure.ai.translation.text import TextTranslationClient
 from azure.core.credentials import AzureKeyCredential
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+APP_DATA_DIR_NAME = "STZ XML Translator"
 
 
 class TranslationService:
@@ -22,17 +24,45 @@ class TranslationService:
 
 def carregar_glossario(target_lang=None):
     """Load glossary entries; tries language specific file first."""
-    base_dir = os.path.dirname(__file__)
+    user_dir = _user_data_dir()
+    legacy_dir = os.path.dirname(__file__)
     candidate_files = []
     if target_lang:
-        candidate_files.append(os.path.join(base_dir, f"glossario_{target_lang}.json"))
-    candidate_files.append(os.path.join(base_dir, "glossario.json"))
+        candidate_files.append(os.path.join(user_dir, f"glossario_{target_lang}.json"))
+        candidate_files.append(os.path.join(legacy_dir, f"glossario_{target_lang}.json"))
+    candidate_files.append(os.path.join(user_dir, "glossario.json"))
+    candidate_files.append(os.path.join(legacy_dir, "glossario.json"))
 
     for path in candidate_files:
         if os.path.exists(path):
             with open(path, encoding="utf-8") as stream:
                 return json.load(stream)
     return {}
+
+
+def _is_packaged_app() -> bool:
+    exe_name = os.path.basename(sys.executable).lower()
+    return bool(
+        getattr(sys, "frozen", False)
+        or "__compiled__" in globals()
+        or not exe_name.startswith("python")
+    )
+
+
+def _user_data_dir() -> str:
+    override = os.environ.get("STZ_XML_TRANSLATOR_DATA_DIR")
+    if override:
+        return os.path.abspath(override)
+
+    if not _is_packaged_app():
+        return os.path.dirname(__file__)
+
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return os.path.join(base, APP_DATA_DIR_NAME)
+
+    return os.path.join(os.path.expanduser("~"), f".{APP_DATA_DIR_NAME.replace(' ', '-').lower()}")
 
 
 def _candidate_model_names(model_name: str):

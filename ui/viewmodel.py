@@ -819,8 +819,8 @@ class AppViewModel(QObject):
     def saveGlossary(self, entries: list) -> None:
         import json
 
-        from core.app_controller import resource_path
-        path = os.path.join(resource_path("scripts"), "glossario.json")
+        from core.app_controller import user_data_path
+        path = user_data_path("glossario.json")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         data = {e["original"]: e["translation"] for e in entries if e.get("original")}
         with open(path, "w", encoding="utf-8") as f:

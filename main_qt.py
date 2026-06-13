@@ -15,7 +15,6 @@ Run: python main_qt.py
 # nuitka-project: --include-data-dir=ui=ui
 # nuitka-project: --include-data-dir=locales=locales
 # nuitka-project: --include-data-dir=assets=assets
-# nuitka-project: --include-data-files=scripts/glossario.json=scripts/glossario.json
 # nuitka-project: --nofollow-import-to=tests
 # nuitka-project: --nofollow-import-to=*.tests
 # nuitka-project: --nofollow-import-to=ruff
