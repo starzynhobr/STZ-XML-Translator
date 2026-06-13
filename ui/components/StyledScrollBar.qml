@@ -6,11 +6,11 @@ ScrollBar {
     id: bar
 
     policy: ScrollBar.AsNeeded
-    minimumSize: 0.08
+    minimumSize: 0.15
 
     contentItem: Rectangle {
-        implicitWidth: 5
-        implicitHeight: 5
+        implicitWidth: 6
+        implicitHeight: 40
         radius: 3
         color: bar.pressed ? Theme.textPrimary
              : bar.hovered ? Theme.textSecondary
@@ -21,8 +21,8 @@ ScrollBar {
     }
 
     background: Rectangle {
-        implicitWidth: 5
-        implicitHeight: 5
+        implicitWidth: 6
+        implicitHeight: 40
         radius: 3
         color: bar.active ? Qt.rgba(1, 1, 1, 0.05) : "transparent"
         Behavior on color { ColorAnimation { duration: 200 } }

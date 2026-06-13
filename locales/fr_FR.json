@@ -174,5 +174,7 @@
   "glossary_original_placeholder": "Terme original...",
   "glossary_translation_placeholder": "Traduction...",
   "appearance_section_title": "Apparence",
-  "appearance_section_subtitle": "Thème de l'interface"
+  "appearance_section_subtitle": "Thème de l'interface",
+  "log_api_key_needed": "Clé API requise. Cliquez sur l'icône de clé pour la configurer.",
+  "log_load_success": "'{filename}' chargé — {count} entrées."
 }

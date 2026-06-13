@@ -22,10 +22,22 @@ Pane {
 
     background: Rectangle { color: Theme.bgSurface1; radius: 6 }
 
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
-        spacing: 8
+    Item {
+        id: editScrollContainer
+        anchors { fill: parent; margins: 12 }
+
+        Flickable {
+            id: editFlick
+            anchors { fill: parent; rightMargin: 14 }
+            contentWidth: width
+            contentHeight: editPanelColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+        ColumnLayout {
+            id: editPanelColumn
+            width: editFlick.width
+            spacing: 8
 
         // ---- Title row with info button ----
         Item {
@@ -712,6 +724,20 @@ Pane {
             onClicked: vm.approveAllTranslations()
         }
     }
+        }  // Flickable
+
+        StyledScrollBar {
+            anchors {
+                top: editScrollContainer.top
+                bottom: editScrollContainer.bottom
+                right: editScrollContainer.right
+            }
+            orientation: Qt.Vertical
+            size: editFlick.visibleArea.heightRatio
+            position: editFlick.visibleArea.yPosition
+            onPositionChanged: if (pressed) editFlick.contentY = position * editFlick.contentHeight
+        }
+    }  // Item
 
     GlossaryDialog { id: glossaryDialog }
 }

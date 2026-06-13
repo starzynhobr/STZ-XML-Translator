@@ -499,7 +499,7 @@ class AppViewModel(QObject):
     def translateSelected(self) -> None:
         if not self._selected_xpath:
             return
-        if self._ctrl.preferred_provider != "Ollama (Local)" and not self._ctrl.api_key:
+        if self.providerNeedsApiKey and not self._ctrl.api_key:
             self.errorOccurred.emit(self._i18n.get("log_api_key_needed"))
             return
         if self._is_single_translating:
@@ -530,8 +530,9 @@ class AppViewModel(QObject):
     def setSkipRows(self, n: int) -> None:
         self._skip_rows = max(0, n)
 
+    @Slot()
     def startBatchTranslation(self) -> None:
-        if self._ctrl.preferred_provider != "Ollama (Local)" and not self._ctrl.api_key:
+        if self.providerNeedsApiKey and not self._ctrl.api_key:
             self.errorOccurred.emit(self._i18n.get("log_api_key_needed"))
             return
         self._set_translating(True)
