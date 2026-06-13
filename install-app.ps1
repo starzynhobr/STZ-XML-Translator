@@ -1,24 +1,24 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Instala o STZ XML Translator (MSIX auto-assinado).
+    Installs STZ XML Translator from a self-signed MSIX package.
 .DESCRIPTION
-    1. Auto-eleva para Administrador se necessário
-    2. Instala o certificado .cer no Trusted Root (LocalMachine)
-    3. Instala o pacote .msix com Add-AppxPackage
+    1. Requests administrator permissions when needed
+    2. Installs the .cer certificate into Trusted Root (LocalMachine)
+    3. Installs the .msix package with Add-AppxPackage
 .NOTES
-    Coloque este script na mesma pasta que o .msix e o .cer.
-    Execute com duplo-clique ou: powershell -ExecutionPolicy Bypass -File install-app.ps1
+    Keep this script in the same folder as the .msix and .cer files.
+    Run it by double-clicking or with: powershell -ExecutionPolicy Bypass -File install-app.ps1
 #>
 
 Set-StrictMode -Version Latest
 
-# ── Auto-elevação para Administrador ────────────────────────
+# ── Request administrator permissions ───────────────────────
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
                [Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
-    Write-Host "Elevando para Administrador..." -ForegroundColor Yellow
+    Write-Host "Requesting administrator permissions..." -ForegroundColor Yellow
     $args = "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
     Start-Process powershell -Verb RunAs -ArgumentList $args
     exit
@@ -27,32 +27,32 @@ if (-not $isAdmin) {
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Host "`n========================================"  -ForegroundColor White
-Write-Host " Instalador STZ XML Translator"             -ForegroundColor White
+Write-Host " STZ XML Translator Installer"              -ForegroundColor White
 Write-Host "========================================`n" -ForegroundColor White
 
-# ── Localizar .cer ──────────────────────────────────────────
+# ── Find .cer file ──────────────────────────────────────────
 $cerFile = Get-ChildItem -Path $ScriptDir -Filter '*.cer' | Select-Object -First 1
 if (-not $cerFile) {
-    Write-Host "ERRO: Nenhum arquivo .cer encontrado em '$ScriptDir'." -ForegroundColor Red
-    Write-Host "      Certifique-se de que o .cer está na mesma pasta que este script."
-    Read-Host "`nPressione Enter para sair"
+    Write-Host "ERROR: No .cer file was found in '$ScriptDir'." -ForegroundColor Red
+    Write-Host "       Make sure the .cer file is in the same folder as this script."
+    Read-Host "`nPress Enter to exit"
     exit 1
 }
 
-# ── Localizar .msix ─────────────────────────────────────────
+# ── Find .msix file ─────────────────────────────────────────
 $msixFile = Get-ChildItem -Path $ScriptDir -Filter '*.msix' | Select-Object -First 1
 if (-not $msixFile) {
-    Write-Host "ERRO: Nenhum arquivo .msix encontrado em '$ScriptDir'." -ForegroundColor Red
-    Write-Host "      Certifique-se de que o .msix está na mesma pasta que este script."
-    Read-Host "`nPressione Enter para sair"
+    Write-Host "ERROR: No .msix file was found in '$ScriptDir'." -ForegroundColor Red
+    Write-Host "       Make sure the .msix file is in the same folder as this script."
+    Read-Host "`nPress Enter to exit"
     exit 1
 }
 
-Write-Host "  Certificado : $($cerFile.Name)"
-Write-Host "  Pacote      : $($msixFile.Name)`n"
+Write-Host "  Certificate : $($cerFile.Name)"
+Write-Host "  Package     : $($msixFile.Name)`n"
 
-# ── Instalar certificado (idempotente) ──────────────────────
-Write-Host "==> Verificando certificado no Trusted Root..." -ForegroundColor Cyan
+# ── Install certificate (idempotent) ────────────────────────
+Write-Host "==> Checking certificate in Trusted Root..." -ForegroundColor Cyan
 
 $certObj    = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $cerFile.FullName
 $thumbprint = $certObj.Thumbprint
@@ -62,9 +62,9 @@ $existing = Get-ChildItem Cert:\LocalMachine\Root |
             Select-Object -First 1
 
 if ($existing) {
-    Write-Host "    OK: Certificado já instalado ($thumbprint)." -ForegroundColor Green
+    Write-Host "    OK: Certificate is already installed ($thumbprint)." -ForegroundColor Green
 } else {
-    Write-Host "    Instalando certificado em LocalMachine\Root..." -ForegroundColor Yellow
+    Write-Host "    Installing certificate into LocalMachine\Root..." -ForegroundColor Yellow
     try {
         $store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
             [System.Security.Cryptography.X509Certificates.StoreName]::Root,
@@ -72,31 +72,31 @@ if ($existing) {
         $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         $store.Add($certObj)
         $store.Close()
-        Write-Host "    OK: Certificado instalado." -ForegroundColor Green
+        Write-Host "    OK: Certificate installed." -ForegroundColor Green
     } catch {
-        Write-Host "ERRO ao instalar certificado: $_" -ForegroundColor Red
-        Read-Host "`nPressione Enter para sair"
+        Write-Host "ERROR while installing certificate: $_" -ForegroundColor Red
+        Read-Host "`nPress Enter to exit"
         exit 1
     }
 }
 
-# ── Instalar pacote MSIX ────────────────────────────────────
-Write-Host "`n==> Instalando pacote MSIX..." -ForegroundColor Cyan
+# ── Install MSIX package ────────────────────────────────────
+Write-Host "`n==> Installing MSIX package..." -ForegroundColor Cyan
 try {
     Add-AppxPackage -Path $msixFile.FullName
-    Write-Host "    OK: Pacote instalado com sucesso." -ForegroundColor Green
+    Write-Host "    OK: Package installed successfully." -ForegroundColor Green
 } catch {
-    Write-Host "ERRO ao instalar pacote: $_" -ForegroundColor Red
-    Write-Host "`nPossíveis causas:"
-    Write-Host "  - Uma versão mais antiga ainda está instalada (desinstale primeiro)"
-    Write-Host "  - O certificado não foi aceito pelo sistema"
-    Write-Host "  - A versão no manifesto é menor que a instalada"
-    Read-Host "`nPressione Enter para sair"
+    Write-Host "ERROR while installing package: $_" -ForegroundColor Red
+    Write-Host "`nPossible causes:"
+    Write-Host "  - An older version is still installed (uninstall it first)"
+    Write-Host "  - Windows did not trust the certificate"
+    Write-Host "  - The manifest version is lower than the installed version"
+    Read-Host "`nPress Enter to exit"
     exit 1
 }
 
 Write-Host "`n========================================"  -ForegroundColor Green
-Write-Host " Instalação concluída!"                     -ForegroundColor Green
-Write-Host " STZ XML Translator está no Menu Iniciar."  -ForegroundColor Green
+Write-Host " Installation complete!"                    -ForegroundColor Green
+Write-Host " STZ XML Translator is in the Start Menu."  -ForegroundColor Green
 Write-Host "========================================`n" -ForegroundColor Green
-Read-Host "Pressione Enter para fechar"
+Read-Host "Press Enter to close"

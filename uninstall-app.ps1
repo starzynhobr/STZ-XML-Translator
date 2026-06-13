@@ -1,14 +1,14 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Desinstala o STZ XML Translator e opcionalmente remove o certificado.
+    Uninstalls STZ XML Translator and can optionally remove its certificate.
 .NOTES
-    Execute com duplo-clique ou: powershell -ExecutionPolicy Bypass -File uninstall-app.ps1
+    Run it by double-clicking or with: powershell -ExecutionPolicy Bypass -File uninstall-app.ps1
 #>
 
 Set-StrictMode -Version Latest
 
-# ── Auto-elevação ────────────────────────────────────────────
+# ── Request administrator permissions ───────────────────────
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
                [Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -21,42 +21,42 @@ $AppIdPrefix   = 'STZXMLTranslator'
 $CertSubject   = 'CN=STZ Labs'
 
 Write-Host "`n========================================"   -ForegroundColor White
-Write-Host " Desinstalador STZ XML Translator"           -ForegroundColor White
+Write-Host " STZ XML Translator Uninstaller"             -ForegroundColor White
 Write-Host "========================================`n"  -ForegroundColor White
 
-# ── Localizar e remover pacote ──────────────────────────────
-Write-Host "==> Procurando pacote instalado..." -ForegroundColor Cyan
+# ── Find and remove package ─────────────────────────────────
+Write-Host "==> Looking for installed package..." -ForegroundColor Cyan
 
 $package = Get-AppxPackage -AllUsers | Where-Object { $_.Name -like "*$AppIdPrefix*" } | Select-Object -First 1
 
 if (-not $package) {
-    Write-Host "    Nenhum pacote encontrado com ID '$AppIdPrefix'." -ForegroundColor Yellow
-    Write-Host "    O app pode já ter sido desinstalado."
+    Write-Host "    No package found with ID '$AppIdPrefix'." -ForegroundColor Yellow
+    Write-Host "    The app may already be uninstalled."
 } else {
-    Write-Host "    Encontrado: $($package.PackageFullName)" -ForegroundColor Green
-    Write-Host "    Removendo..."
+    Write-Host "    Found: $($package.PackageFullName)" -ForegroundColor Green
+    Write-Host "    Removing..."
     try {
         Remove-AppxPackage -Package $package.PackageFullName -AllUsers
-        Write-Host "    OK: Pacote removido." -ForegroundColor Green
+        Write-Host "    OK: Package removed." -ForegroundColor Green
     } catch {
-        Write-Host "ERRO ao remover pacote: $_" -ForegroundColor Red
+        Write-Host "ERROR while removing package: $_" -ForegroundColor Red
     }
 }
 
-# ── Remover certificado (opcional) ──────────────────────────
-Write-Host "`n==> Verificando certificado em Trusted Root..." -ForegroundColor Cyan
+# ── Remove certificate (optional) ───────────────────────────
+Write-Host "`n==> Checking certificate in Trusted Root..." -ForegroundColor Cyan
 
 $certs = Get-ChildItem Cert:\LocalMachine\Root |
          Where-Object { $_.Subject -eq $CertSubject }
 
 if (-not $certs) {
-    Write-Host "    Nenhum certificado '$CertSubject' encontrado." -ForegroundColor Yellow
+    Write-Host "    No '$CertSubject' certificate was found." -ForegroundColor Yellow
 } else {
     foreach ($c in $certs) {
-        Write-Host "    Certificado: $($c.Thumbprint) — $($c.Subject)"
+        Write-Host "    Certificate: $($c.Thumbprint) - $($c.Subject)"
     }
-    $resp = Read-Host "`n    Remover o(s) certificado(s) do Trusted Root? [s/N]"
-    if ($resp -match '^[sS]$') {
+    $resp = Read-Host "`n    Remove certificate(s) from Trusted Root? [y/N]"
+    if ($resp -match '^[yYsS]$') {
         foreach ($c in $certs) {
             try {
                 $store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
@@ -65,17 +65,17 @@ if (-not $certs) {
                 $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
                 $store.Remove($c)
                 $store.Close()
-                Write-Host "    OK: Certificado $($c.Thumbprint) removido." -ForegroundColor Green
+                Write-Host "    OK: Certificate $($c.Thumbprint) removed." -ForegroundColor Green
             } catch {
-                Write-Host "ERRO ao remover certificado: $_" -ForegroundColor Red
+                Write-Host "ERROR while removing certificate: $_" -ForegroundColor Red
             }
         }
     } else {
-        Write-Host "    Certificado mantido." -ForegroundColor Yellow
+        Write-Host "    Certificate kept." -ForegroundColor Yellow
     }
 }
 
 Write-Host "`n========================================"  -ForegroundColor Green
-Write-Host " Desinstalação concluída."                  -ForegroundColor Green
+Write-Host " Uninstall complete."                       -ForegroundColor Green
 Write-Host "========================================`n" -ForegroundColor Green
-Read-Host "Pressione Enter para fechar"
+Read-Host "Press Enter to close"
