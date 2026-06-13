@@ -29,8 +29,8 @@ A desktop tool for modders and localization teams to translate XML files from ga
 **Requirements:** Python 3.12 · Windows 10/11 (FluentWinUI3 requires Qt 6.7+)
 
 ```powershell
-git clone https://github.com/StarzynhoBR/Game-XML-Translator.git
-cd Game-XML-Translator
+git clone https://github.com/StarzynhoBR/STZ-XML-Translator.git
+cd STZ-XML-Translator
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e ".[dev]"

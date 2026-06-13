@@ -16,9 +16,9 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
-AppPublisherURL=https://github.com/StarzynhoBR/Game-XML-Translator
-AppSupportURL=https://github.com/StarzynhoBR/Game-XML-Translator/issues
-AppUpdatesURL=https://github.com/StarzynhoBR/Game-XML-Translator/releases
+AppPublisherURL=https://github.com/StarzynhoBR/STZ-XML-Translator
+AppSupportURL=https://github.com/StarzynhoBR/STZ-XML-Translator/issues
+AppUpdatesURL=https://github.com/StarzynhoBR/STZ-XML-Translator/releases
 
 ; Instala por usuario, sem precisar de elevacao UAC
 PrivilegesRequired=lowest
