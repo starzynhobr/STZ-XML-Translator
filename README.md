@@ -65,7 +65,7 @@ If you prefer to review it first, open `install-app.ps1` in a text editor before
 
 1. **Load XML** — click **Load XML File** and pick your file. The app auto-detects repeating tags. Choose the **Parent Tag** (the repeating element, e.g. `hero`) and **Target Tag** (the field to translate, e.g. `bio`), then click **Reload** to populate the table.
 
-2. **Tag Presets** — save frequent tag combinations with a description via **💾 Save Preset**. Load them later with **📂 Load Preset**. Presets are stored in `tag_presets.json` at the project root.
+2. **Tag Presets** — save frequent tag combinations with a description via **💾 Save Preset**. Load them later with **📂 Load Preset**. Presets are stored in `tag_presets.json` in the app's user data folder.
 
 3. **Select a provider** — use the **Translation Provider** dropdown in the right panel. For Google Translate no key is needed. For Gemini, DeepL, or Azure, click **API Key Configuration** and enter your key.
 
@@ -74,6 +74,8 @@ If you prefer to review it first, open `install-app.ps1` in a text editor before
 5. **Review** — select any row to read the original text and edit the translation in the right panel. Click **Confirm Selected Translation** to mark it as done, or **Confirm All Translations** to approve everything at once.
 
 6. **Export** — use **Export Translated XML** to save a new file, or **💾 Save to Current File** to overwrite the original (a confirmation dialog appears). Saving in place auto-reloads the file.
+
+**Demo:** [Exporting and importing translations with JSON](https://www.youtube.com/watch?v=ahnqpZrGQe0)
 
 > Click the **ⓘ** button at the top-right of the tools panel for a built-in quick-reference guide.
 
