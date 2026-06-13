@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.app_controller import AppController, TRANSLATION_TARGETS
+from core.app_controller import TRANSLATION_TARGETS, AppController
 
 FIXTURE_XML = os.path.join(os.path.dirname(__file__), "fixtures", "sample.xml")
 
@@ -139,3 +139,43 @@ class TestConfigPersistence:
         ctrl = AppController()
         ctrl.save_config(api_key="key", model_label="lbl", model_id="mid")
         assert (tmp_path / "config.json").exists()
+
+
+class TestPreferredTheme:
+    def test_default_theme_is_windows_fluent(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        ctrl = AppController()
+        assert ctrl.preferred_theme == "Windows Fluent"
+
+    def test_save_preferred_theme_persists(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        ctrl1 = AppController()
+        ctrl1.save_preferred_theme("Cool Tint")
+
+        ctrl2 = AppController()
+        assert ctrl2.preferred_theme == "Cool Tint"
+
+    def test_save_preferred_theme_updates_in_memory(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        ctrl = AppController()
+        ctrl.save_preferred_theme("Neutral Deep")
+        assert ctrl.preferred_theme == "Neutral Deep"
+
+    def test_save_preferred_theme_preserves_api_key(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        ctrl = AppController()
+        ctrl.save_config(api_key="my-key", model_label="lbl", model_id="mid")
+        ctrl.save_preferred_theme("Cool Tint")
+
+        ctrl2 = AppController()
+        assert ctrl2.api_key == "my-key"
+        assert ctrl2.preferred_theme == "Cool Tint"
+
+    def test_missing_theme_key_in_config_falls_back_to_default(self, tmp_path, monkeypatch):
+        import json
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "config.json").write_text(
+            json.dumps({"api_key": "k", "model_label": "l", "model_id": "m"})
+        )
+        ctrl = AppController()
+        assert ctrl.preferred_theme == "Windows Fluent"

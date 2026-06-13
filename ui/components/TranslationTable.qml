@@ -38,11 +38,9 @@ Pane {
 
             Label {
                 anchors.centerIn: parent
-                // Reactive binding via vm.strings — headerData() is a function
-                // call and doesn't update automatically when language changes.
-                text: column === 0
-                    ? (vm.strings["original_text_label"] ?? "Original")
-                    : (vm.strings["translation_label"]   ?? "Translation")
+                text: column === 0 ? "#"
+                    : column === 1 ? (vm.strings["original_text_label"] ?? "Original")
+                    :                (vm.strings["translation_label"]   ?? "Translation")
                 font.pixelSize: 12
                 font.weight: Font.Medium
                 color: Theme.textHeader
@@ -65,7 +63,11 @@ Pane {
         model: vm.tableModel
         clip: true
         reuseItems: true
-        columnWidthProvider: (col) => col === 0 ? width * 0.45 : width * 0.55
+        columnWidthProvider: function(col) {
+            if (col === 0) return 44
+            var rest = width - 44
+            return col === 1 ? rest * 0.45 : rest * 0.55
+        }
 
         ScrollBar.vertical: scrollBar
 
@@ -82,6 +84,7 @@ Pane {
             required property string entryStatus
 
             implicitHeight: 28
+            clip: true
             color: root.statusColor(entryStatus, cellMouse.containsMouse, selected)
 
             Behavior on color { ColorAnimation { duration: 80 } }
@@ -90,12 +93,16 @@ Pane {
                 anchors {
                     left: parent.left; right: parent.right
                     verticalCenter: parent.verticalCenter
-                    leftMargin: 8; rightMargin: 8
+                    leftMargin: cell.column === 0 ? 0 : 8
+                    rightMargin: cell.column === 0 ? 0 : 8
                 }
                 text: cell.display
                 elide: Text.ElideRight
-                font.pixelSize: 13
-                color: cell.selected ? Theme.textCellSelected : Theme.textCell
+                font.pixelSize: cell.column === 0 ? 11 : 13
+                horizontalAlignment: cell.column === 0 ? Text.AlignHCenter : Text.AlignLeft
+                color: cell.column === 0
+                    ? (cell.selected ? Theme.textCellSelected : Theme.textSecondary)
+                    : (cell.selected ? Theme.textCellSelected : Theme.textCell)
                 wrapMode: Text.NoWrap
             }
 

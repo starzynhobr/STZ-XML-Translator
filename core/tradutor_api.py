@@ -1,7 +1,11 @@
+import concurrent.futures
 import json
 import logging
 import os
 import re
+import time
+import urllib.parse
+import urllib.request
 
 import deepl
 import requests
@@ -153,6 +157,18 @@ def _is_paid_tier(base: str) -> bool:
     return False
 
 
+def _glossary_replace(text: str, term: str, replacement: str) -> str:
+    """Case-insensitive replace that mirrors the case pattern of the matched text."""
+    def repl(match: re.Match) -> str:
+        matched = match.group(0)
+        if matched.isupper():
+            return replacement.upper()
+        if matched.islower():
+            return replacement.lower()
+        return replacement
+    return re.sub(re.escape(term), repl, text, flags=re.IGNORECASE)
+
+
 def _strip_think(text: str) -> str:
     """Remove <think>...</think> blocks produced by thinking-mode models."""
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
@@ -203,8 +219,9 @@ class GeminiService(TranslationService):
         glossary_used = False
 
         for original_term, target_term in glossary_pairs:
-            if original_term in pretranslated_text:
-                pretranslated_text = pretranslated_text.replace(original_term, target_term)
+            new_text = _glossary_replace(pretranslated_text, original_term, target_term)
+            if new_text != pretranslated_text:
+                pretranslated_text = new_text
                 glossary_used = True
 
         if glossary_used and target_lang == "pt":
@@ -317,8 +334,83 @@ def translate_batch_ollama(entries, config: dict) -> "dict[str, str] | None":
         return None
 
 
+_GT_PROTECTED_RE = re.compile(
+    r"(\{[^{}]+\}|&[A-Za-z]+;|S\.H\.I\.E\.L\.D\.|\$\d+(?:\.\d+)?|%\d|%s|%%|\$\w+)"
+)
+_GT_LANG_MAP = {"pt": "pt-BR", "en": "en", "es": "es", "fr": "fr", "ja": "ja"}
+
+
+class GoogleTranslateFreeService(TranslationService):
+    def translate(self, text, config):
+        tl = _GT_LANG_MAP.get(config.get("target_lang", "pt"), config.get("target_lang", "pt-BR"))
+        segments = text.split("\n")
+        translated = []
+        for seg in segments:
+            if not re.search(r"[A-Za-z]", seg):
+                translated.append(seg)
+                continue
+            protected, replacements = self._protect(seg)
+            result = self._call_api(protected, tl)
+            translated.append(self._unprotect(result, replacements))
+        return "\n".join(translated)
+
+    def _protect(self, text):
+        replacements = {}
+        counter = [0]
+        def repl(m):
+            token = f"ZXQ{counter[0]}QXZ"
+            counter[0] += 1
+            replacements[token] = m.group(0)
+            return token
+        return _GT_PROTECTED_RE.sub(repl, text), replacements
+
+    def _unprotect(self, text, replacements):
+        for token, original in replacements.items():
+            text = text.replace(token, original)
+        return text
+
+    def _call_api(self, text, tl):
+        params = urllib.parse.urlencode({"client": "gtx", "sl": "auto", "tl": tl, "dt": "t", "q": text})
+        url = f"https://translate.googleapis.com/translate_a/single?{params}"
+        last_error = None
+        for attempt in range(4):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                return "".join(p[0] for p in payload[0] if p and p[0] is not None)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.4 * (attempt + 1))
+        raise RuntimeError(f"Google Translate falhou: {last_error}")
+
+
+def translate_batch_google_free(entries, config: dict) -> "dict[str, str] | None":
+    """Translate a batch of entries in parallel using the free Google Translate endpoint."""
+    service = GoogleTranslateFreeService()
+    results: dict[str, str] = {}
+    failed = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_entry = {
+            executor.submit(service.translate, entry.original, config): entry
+            for entry in entries
+        }
+        for future in concurrent.futures.as_completed(future_to_entry):
+            entry = future_to_entry[future]
+            try:
+                results[entry.xpath] = future.result()
+            except Exception:
+                failed += 1
+
+    if failed > len(entries) // 2:
+        return None
+    return results
+
+
 AVAILABLE_SERVICES = {
     "Gemini": GeminiService(),
+    "Google Translate (Free)": GoogleTranslateFreeService(),
     "DeepL": DeepLService(),
     "Microsoft Azure": AzureService(),
     "Ollama (Local)": OllamaService(),
@@ -370,6 +462,7 @@ __all__ = [
     "AVAILABLE_SERVICES",
     "translate_text",
     "translate_batch_ollama",
+    "translate_batch_google_free",
     "traduzir_arquivo_json",
     "get_gemini_model",
     "list_gemini_models",

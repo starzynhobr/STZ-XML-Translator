@@ -1,27 +1,26 @@
-# Game XML Translator
+# STZ XML Translator
 
-Desktop tool that helps modders and localization teams translate XML dialogue files. It provides a CustomTkinter interface to preview original strings, apply machine translations, review them faster, and export an updated XML without breaking the structure of the game file.
-
-> **Status:** maintenance mode. No new features are planned, but the existing code and build instructions remain available for reference.
+Desktop tool that helps modders and localization teams translate XML files for games or other structured content. Built with PySide6 + QML (FluentWinUI3 dark theme), it provides a modern interface to load XML files, preview original strings, apply AI translations in batch or individually, review results, and export the updated XML without altering the file's original structure.
 
 ## Features
 
-- XML extractor/injector that preserves node order and attributes.
-- CustomTkinter UI with dark theme, progress tracking, and quick filters.
-- Multiple translation providers (via `core/tradutor_api`), including support for API keys such as Google Gemini.
-- Glossary manager (`scripts/glossario.json`) to enforce project terminology.
-- Multi-language interface managed by JSON files in `locales/`.
-- One-click export back to XML with structural validation helpers.
+- **Smart XML parser** — detects repeating elements automatically; extracts only the target text fields, preserving attributes, node order, and namespaces.
+- **PySide6 / QML interface** — FluentWinUI3 dark theme, fluid layouts, searchable dropdowns.
+- **AI translation** — batch translation via Google Gemini (120 items per call), plus sequential support for DeepL, Microsoft Azure, and Ollama (local).
+- **Tag picker with presets** — auto-detect parent/child tags from the loaded XML; save named presets (`tag_presets.json`) for reuse across sessions.
+- **Separate UI language and translation target** — change the app language independently from the language the AI translates into.
+- **Checkpoint / resume** — progress is saved after each batch so you can interrupt and continue later.
+- **Save in place** — overwrite the original file and auto-reload so the translated text becomes the new original for follow-up passes.
+- **Glossary manager** — enforce project terminology via `scripts/glossario.json`.
+- **Multi-language UI** — interface strings live in `locales/*.json`; five languages included (pt-BR, en-US, es-ES, fr-FR, ja-JP).
 
 ## Quick Start
 
 Requirements:
 
-- Python 3.11 (recommended)  
-- Windows 10/11 with Visual C++ Build Tools (needed only for compilation)  
-- A translation provider API key (optional, but required for automated translations)
-
-Clone the repository and set up a virtual environment:
+- Python 3.12
+- Windows 10/11 (FluentWinUI3 style requires Qt 6.7+)
+- A translation provider API key (optional — required for AI translation)
 
 ```powershell
 git clone https://github.com/StarzynhoBR/Game-XML-Translator.git
@@ -29,68 +28,96 @@ cd Game-XML-Translator
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+python main_qt.py
 ```
-
-Run the app from source:
-
-```powershell
-python main.py
-```
-
-> Tip: the interface detects available locales from `locales/*.json`. Edit or add new files to localize the UI.
 
 ## Using the App
 
-1. Open an XML file (`Arquivo XML Original`) and, if needed, choose the parent/target tags that contain the dialogue lines.  
-2. Select the language for the UI and connect a translation provider (set your API key via the settings button).  
-3. Click “Extrair texto” to populate the table. You can review or edit translations manually in the right pane.  
-4. Use “Traduzir Selecionado” or “Traduzir Tudo” to call the chosen translation service; adjust wording directly in the table or textbox.  
-5. Export with “Salvar XML traduzido”: pick the output path and the tool will inject the translations while keeping the original structure.
+1. **Load XML** — click "Carregar XML" and pick your file. The app auto-detects repeating tags (parent candidates). Choose the **Parent Tag** (the repeating element, e.g. `hero`) and **Target Tag** (the field to translate, e.g. `bio`), then click **Recarregar** to populate the table.
 
-> Tested primarily with Marvel Avengers Alliance Redux assets, but the workflow handles generic XML files without namespaces. For other games, confirm the target tag names match their structure.
+2. **Tag Presets** — save frequent tag combinations with a description via "💾 Salvar Preset". Load them later with "📂 Carregar Preset". Presets are stored in `tag_presets.json` at the project root.
+
+3. **Configure AI** — select a provider (Gemini, DeepL, Azure, or Ollama) and enter your API key via "Configurar API". For Gemini, free-tier Flash models are recommended.
+
+4. **Translate** — click "Traduzir Todos os Pendentes" to process all entries in batch. Rows turn yellow while a batch is in flight; green when done. To translate a single entry, select its row and click "Traduzir Item Selecionado".
+
+5. **Review** — select any row to read the original and edit the translation manually in the right panel. Click "Confirmar Tradução" to mark it as done.
+
+6. **Export** — use "Exportar XML Traduzido" to save a new file, or "Salvar no Arquivo Atual" to overwrite the original (a confirmation dialog will appear). Saving in place automatically reloads the file so the translated text becomes the new original.
+
+> The ⓘ button at the top-right of the tools panel shows a built-in quick-reference guide.
 
 ## Building a Standalone Executable
 
-The project ships with a build script for Nuitka:
+The project ships with a Nuitka build script for Windows:
 
 ```powershell
 build_nuitka.bat
+```
 
-This script activates `.venv`, installs or updates Nuitka, bundles the assets and locales, and produces `dist/GameXMLTranslator.exe` with the project icon.
+This activates `.venv`, upgrades Nuitka, and produces `dist\STZXMLTranslator.exe`.
 
-Manual build example (same flags used by the script):
+Manual build (same flags used by the script):
 
 ```powershell
 python -m nuitka ^
     --standalone --onefile ^
-    --enable-plugin=tk-inter ^
+    --enable-plugin=pyside6 ^
     --windows-console-mode=disable ^
     --windows-icon-from-ico=assets/icon.ico ^
+    --include-data-dir=ui=ui ^
     --include-data-dir=locales=locales ^
-    main.py
+    --include-data-dir=assets=assets ^
+    --include-data-dir=scripts=scripts ^
+    --output-filename=STZXMLTranslator.exe ^
+    --output-dir=dist ^
+    main_qt.py
 ```
 
-If you need to distribute the executable, prefer creating a GitHub Release instead of committing the `.exe` file to version control.
+> QML files (`ui/**/*.qml`) must be included as data — they are loaded at runtime, not compiled by Nuitka.
 
 ## Project Layout
 
-- `main.py` - GUI entry point with translation workflow.
-- `core/` - XML extraction/injection logic, translation service adapters, and i18n manager.
-- `locales/` - UI translations in JSON.
-- `assets/` - Static assets such as the application icon.
-- `scripts/` - Glossary JSON and additional helpers.
-- `build_nuitka.bat` - Automated Nuitka build script.
+```
+main_qt.py          Entry point (PySide6 + QML)
+core/
+  app_controller.py Facade: coordinates project, worker, config, presets
+  project.py        TranslationProject — entries, checkpoint, export/import
+  translation_worker.py  Batch/single AI translation (background thread)
+  extrator.py       XML text extraction
+  injetor.py        XML translation injection
+  tradutor_api.py   Provider adapters (Gemini, DeepL, Azure, Ollama)
+  i18n.py           Locale loader
+ui/
+  main.qml          Root ApplicationWindow
+  theme.py          Central colour tokens (Theme.* context property)
+  viewmodel.py      AppViewModel — Python↔QML bridge (signals/slots/properties)
+  components/
+    LeftSidebar.qml   File loading, tag picker, presets, progress, export
+    EditPanel.qml     Provider config, batch/single translate, review
+    TranslationTable.qml  Two-column table with status colours
+    LogPanel.qml      Terminal-style log
+    TagComboBox.qml   Editable searchable dropdown
+    GlossaryDialog.qml
+    AppButton.qml
+locales/            UI strings (pt_BR, en_US, es_ES, fr_FR, ja_JP)
+assets/             Application icon
+scripts/            glossario.json (project terminology)
+tag_presets.json    Saved tag presets (created at runtime)
+config.json         User preferences (created at runtime)
+```
 
 ## Troubleshooting
 
-- **Module not found / customtkinter**: ensure the virtual environment is activated and dependencies are installed.
-- **Large executable**: this is expected for `--onefile`. Switch to `--standalone` for a folder-based build.
-- **Build failures on Windows**: install the "Desktop development with C++" workload from Visual Studio Build Tools.
-- **Locale not loading**: verify the JSON filename matches the locale code (e.g., `pt_BR.json`) and contains valid JSON.
-
-## Short Summary in Portuguese
-
-Game XML Translator e uma ferramenta desktop para traduzir arquivos XML de jogos. O projeto inclui interface em CustomTkinter, suporte a servicos de traducao automatica, glossario personalizavel e scripts para gerar um executavel standalone com Nuitka. Veja `BUILD.md` para passos detalhados de compilacao.
+| Problem | Solution |
+|---------|----------|
+| **White text on white context menu** | Ensure `QT_QPA_PLATFORM=windows:darkmode=2` is set (done automatically by `main_qt.py` on Win32). |
+| **Tags not detected / empty dropdown** | The file may use namespaces or non-repeating elements. Type the tag name manually and click Recarregar. |
+| **"AVISO: Tags encontradas, mas não continham texto"** | The auto-detected tag is a container, not a leaf field. Select a different parent or target tag. |
+| **Translation never stops after Cancel** | Cancel stops the worker between batches. The current in-flight Gemini request finishes before stopping (HTTP calls can't be interrupted mid-flight). |
+| **Large executable** | Expected for `--onefile`. Use `--standalone` for a folder-based distribution with faster startup. |
+| **Locale not loading** | The JSON filename must match the locale code exactly (e.g. `pt_BR.json`) and contain valid JSON. |
+| **Build failures on Windows** | Install the "Desktop development with C++" workload from Visual Studio Build Tools. |
 
 ## Author
 
@@ -98,17 +125,16 @@ Created by [StarzynhoBR](https://github.com/StarzynhoBR). Se voce reutilizar alg
 
 ## Contributing
 
-Bug reports and pull requests are welcome! Please open an issue first to discuss major changes. For pull requests, run the application locally to verify that locale files and glossary loading still work.
+Bug reports and pull requests are welcome. Please open an issue first to discuss major changes. For pull requests, run `python main_qt.py` locally to verify the UI and locale files still load correctly.
 
 ## ⚖️ Licensing (Dual Licensing)
 
-This project is available under two distinct licenses:
-
 1. **Community Use (GPLv3):** Free for personal use and open-source projects. You are free to modify and distribute this software, provided that your changes remain open-source.
 
-2. **Commercial Use:** For companies wishing to integrate this translation system or its processing logic into proprietary software, OEM distributions, or commercial interfaces.
+2. **Commercial Use:** For companies wishing to integrate this translation system into proprietary software, OEM distributions, or commercial interfaces, a separate license is required.
 
-To acquire a commercial license, please contact: [starzynhobr@gmail.com]
+To acquire a commercial license, contact: [starzynhobr@gmail.com]
 
 ### Gemini API Tips
-- When using the free tier, prefer models like "Gemini 2.0 Flash", "Gemini Flash (latest)" or other flash variants; preview/pro models (e.g., 2.5 Pro) may have zero free quota and return 429 errors.
+- Free-tier models: prefer **Gemini Flash Lite** or **Gemini Flash** variants. Preview/Pro models (e.g. 2.5 Pro) may have zero free quota and return 429 errors.
+- Batch size is fixed at 120 items per request. With a 5-second inter-batch pause the free tier handles large files without hitting rate limits in most cases.

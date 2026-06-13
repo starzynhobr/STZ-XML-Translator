@@ -6,6 +6,7 @@ description = "Desktop tool for translating game XML files using AI translation 
 
 [tool.ruff]
 line-length = 100
+exclude = ["scripts/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

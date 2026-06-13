@@ -54,6 +54,14 @@ nuitka_out/
 *.bin
 nuitka-crash-report*.xml
 
+# Dados de runtime gerados pelo app
+tag_presets.json
+
+# Ferramentas de desenvolvimento / agentes
+.agents/
+skills-lock.json
+.claude/
+
 # Arquivos do sistema
 .DS_Store
 Thumbs.db

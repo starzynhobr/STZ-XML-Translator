@@ -1,8 +1,6 @@
 """
-Entry point for the PySide6 + QML version of Game XML Translator.
+Entry point for STZ XML Translator (PySide6 + QML).
 Run: python main_qt.py
-
-The CustomTkinter version (main.py) remains available as fallback.
 """
 import os
 import sys
@@ -99,13 +97,11 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Game XML Translator")
+    app.setApplicationName("STZ XML Translator")
     app.setApplicationVersion("1.2.0")
     app.setOrganizationName("GameXMLTranslator")
 
-    # Apply dark palette before loading QML so all native widgets/menus
-    # (right-click context menus, tooltips, etc.) inherit dark colours.
-    _apply_dark_palette(app)
+    # Dark palette is applied after loading the initial theme below.
 
     # QSS fallback: style QWidget-based menus/tooltips that may bypass QPalette.
     app.setStyleSheet("""
@@ -144,14 +140,23 @@ def main() -> int:
         app.setWindowIcon(QIcon(icon_path))
 
     # Instantiate ViewModel before the engine so it's available to QML
+    from ui.theme import DEFAULT_THEME, THEMES, build_palette
+    from ui.theme_controller import ThemeController
     from ui.viewmodel import AppViewModel
-    from ui.theme import THEME
     vm = AppViewModel()
+
+    # Pick the saved theme (falls back to default if unknown)
+    initial_theme_name = vm._ctrl.preferred_theme
+    initial_theme = THEMES.get(initial_theme_name, THEMES[DEFAULT_THEME])
+    app.setPalette(build_palette(initial_theme))
 
     engine = QQmlApplicationEngine()
     engine.warnings.connect(_log_qml_warnings)
     engine.rootContext().setContextProperty("vm", vm)
-    engine.rootContext().setContextProperty("Theme", THEME)
+    engine.rootContext().setContextProperty("Theme", initial_theme)
+
+    theme_ctrl = ThemeController(engine.rootContext(), app, vm._ctrl, vm.themeChanged.emit)
+    engine.rootContext().setContextProperty("themeCtrl", theme_ctrl)
 
     # Add ui/ to QML import path so "components/Foo.qml" is found
     ui_dir = _resolve("ui")

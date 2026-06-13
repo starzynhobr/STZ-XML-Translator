@@ -107,7 +107,7 @@ Pane {
                         520
                     )
                     clip: true
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: StyledScrollBar {}
 
                     ColumnLayout {
                         width: 500 - 24   // dialog width minus scrollbar gutter
@@ -198,43 +198,23 @@ Pane {
             font.pixelSize: 12
             color: Theme.textSecondary
         }
-        ComboBox {
+        StyledComboBox {
             id: providerCombo
             model: vm.providers
             currentIndex: vm.providers.indexOf(vm.selectedProvider)
             Layout.fillWidth: true
             enabled: !vm.isTranslating
             onActivated: vm.selectProvider(currentText)
+        }
 
-            contentItem: Text {
-                leftPadding: 8
-                text: providerCombo.displayText
-                color: Theme.textInput
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-                font: providerCombo.font
-            }
-            background: Rectangle {
-                color: providerCombo.hovered ? Theme.bgSurface3 : Theme.bgInput
-                radius: 4
-                border.color: providerCombo.activeFocus ? Theme.borderFocus : Theme.borderInput
-                border.width: providerCombo.activeFocus ? 2 : 1
-            }
-            popup: Popup {
-                y: providerCombo.height
-                width: providerCombo.width
-                height: Math.min(providerListView.contentHeight + 8, 200)
-                padding: 4
-                background: Rectangle { color: Theme.bgSurface2; radius: 4; border.color: Theme.borderInput; border.width: 1 }
-                contentItem: ListView {
-                    id: providerListView
-                    model: providerCombo.delegateModel
-                    clip: true
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                }
-            }
-
-            HoverHandler { cursorShape: Qt.PointingHandCursor }
+        // ---- Google Translate free notice ----
+        Label {
+            visible: vm.selectedProvider === "Google Translate (Free)"
+            text: vm.strings["google_translate_quality_warning"] ?? "⚠ Machine translation — may not sound natural"
+            font.pixelSize: 11
+            color: Theme.warning
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
         }
 
         // ---- Model selector (Gemini only) ----
@@ -244,7 +224,7 @@ Pane {
             font.pixelSize: 12
             color: Theme.textSecondary
         }
-        ComboBox {
+        StyledComboBox {
             id: modelCombo
             visible: vm.selectedProvider === "Gemini"
             enabled: !vm.isTranslating
@@ -252,39 +232,6 @@ Pane {
             currentIndex: vm.selectedModelIndex
             Layout.fillWidth: true
             onActivated: vm.selectModelByIndex(currentIndex)
-
-            contentItem: Text {
-                leftPadding: 8
-                text: modelCombo.displayText
-                color: Theme.textInput
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-                font: modelCombo.font
-            }
-            background: Rectangle {
-                color: modelCombo.hovered ? Theme.bgSurface3 : Theme.bgInput
-                radius: 4
-                border.color: modelCombo.activeFocus ? Theme.borderFocus : Theme.borderInput
-                border.width: modelCombo.activeFocus ? 2 : 1
-            }
-            popup: Popup {
-                y: modelCombo.height
-                width: modelCombo.width
-                height: Math.min(modelListView.contentHeight + 8, 280)
-                padding: 4
-                background: Rectangle { color: Theme.bgSurface2; radius: 4; border.color: Theme.borderInput; border.width: 1 }
-                contentItem: ListView {
-                    id: modelListView
-                    model: modelCombo.delegateModel
-                    clip: true
-                    ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
-                        minimumSize: 0.1
-                    }
-                }
-            }
-
-            HoverHandler { cursorShape: Qt.PointingHandCursor }
 
             Connections {
                 target: vm
@@ -454,7 +401,9 @@ Pane {
             id: translateBtn
             text: vm.isTranslating
                   ? (vm.strings["cancel_button"] ?? "Cancel")
-                  : (vm.strings["translate_all_button"] ?? "Translate All (AI)")
+                  : vm.providerUsesAi
+                    ? (vm.strings["translate_all_button"]     ?? "Translate All (AI)")
+                    : (vm.strings["translate_all_api_button"] ?? "Translate All")
             Layout.fillWidth: true
             highlighted: !vm.isTranslating
             background: Rectangle {
@@ -472,6 +421,50 @@ Pane {
                 font: translateBtn.font
             }
             onClicked: vm.isTranslating ? vm.cancelTranslation() : vm.startBatchTranslation()
+        }
+
+        // ---- Skip first X rows ----
+        RowLayout {
+            visible: vm.entryCount > 0 && !vm.isTranslating
+            Layout.fillWidth: true
+            spacing: 6
+
+            Label {
+                text: "Skip first:"
+                font.pixelSize: 11; color: Theme.textSecondary
+            }
+            TextField {
+                id: skipRowsField
+                implicitWidth: 64; implicitHeight: 26
+                text: ""
+                placeholderText: "0"
+                font.pixelSize: 11
+                inputMethodHints: Qt.ImhDigitsOnly
+                validator: IntValidator { bottom: 0; top: 999999 }
+                color: Theme.textInput
+                placeholderTextColor: Theme.textPlaceholder
+                background: Rectangle {
+                    color: Theme.bgInput; radius: 4
+                    border.color: skipRowsField.activeFocus ? Theme.borderFocus : Theme.borderInput
+                    border.width: skipRowsField.activeFocus ? 2 : 1
+                }
+                onEditingFinished: vm.setSkipRows(text === "" ? 0 : parseInt(text))
+            }
+            Label {
+                text: "rows"
+                font.pixelSize: 11; color: Theme.textSecondary
+            }
+            Item { Layout.fillWidth: true }
+            Label {
+                id: skipWarnIcon
+                visible: skipRowsField.text !== "" && parseInt(skipRowsField.text) > 0
+                text: "⚠"
+                font.pixelSize: 13; color: "#e0a030"
+                HoverHandler { id: skipWarnHover; cursorShape: Qt.WhatsThisCursor }
+                ToolTip.visible: skipWarnHover.hovered
+                ToolTip.delay: 400
+                ToolTip.text: "Rows 1–" + skipRowsField.text + " will be skipped"
+            }
         }
 
         // ---- Reset translations (small secondary action) ----
@@ -516,8 +509,9 @@ Pane {
             }
         }
 
-        // ---- Translation context / theme ----
+        // ---- Translation context / theme (AI providers only) ----
         Label {
+            visible: vm.providerUsesAi
             text: vm.strings["translation_context_label"] ?? "Contexto / Tema"
             font.pixelSize: 12
             color: Theme.textSecondary
@@ -529,6 +523,7 @@ Pane {
         }
         TextField {
             id: contextField
+            visible: vm.providerUsesAi
             text: vm.translationContext
             placeholderText: vm.strings["translation_context_placeholder"] ?? "Ex: Marvel, Skyrim, The Sims 4..."
             Layout.fillWidth: true
@@ -607,7 +602,9 @@ Pane {
             id: suggestBtn
             text: vm.isSingleTranslating
                   ? (vm.strings["translating_button"] ?? "Translating…")
-                  : (vm.strings["generate_suggestion_button"] ?? "Translate Selected (AI)")
+                  : vm.providerUsesAi
+                    ? (vm.strings["generate_suggestion_button"]     ?? "Translate Selected (AI)")
+                    : (vm.strings["generate_suggestion_api_button"] ?? "Translate Selected")
             Layout.fillWidth: true
             enabled: root.xpath !== "" && !vm.isSingleTranslating
             onClicked: vm.translateSelected()

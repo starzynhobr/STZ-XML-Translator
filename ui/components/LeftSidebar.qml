@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Controls.FluentWinUI3
 import QtQuick.Dialogs
+import Qt5Compat.GraphicalEffects
 
 Pane {
     id: root
@@ -87,37 +88,59 @@ Pane {
             padding: 4
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
+            enter: Transition {
+                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: 120; easing.type: Easing.OutQuad }
+            }
+            exit: Transition {
+                NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: 80 }
+            }
+
             background: Rectangle {
-                color: Theme.bgSurface2; radius: 4
-                border.color: Theme.borderInput; border.width: 1
+                color: Theme.bgSurface2; radius: 7
+                border.color: Theme.borderModerate; border.width: 1
             }
 
             contentItem: ListView {
                 model: root.localeNames
                 clip: true
-                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: StyledScrollBar {}
 
                 delegate: Rectangle {
                     width: ListView.view.width
                     height: 34
                     color: uiLangItemMouse.containsMouse ? Theme.bgSurface3 : "transparent"
-                    radius: 3
+                    radius: 4
+                    Behavior on color { ColorAnimation { duration: 80 } }
 
-                    Text {
-                        anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 10 }
-                        text: modelData
-                        color: root.localeCodes[index] === vm.currentLocaleCode
-                               ? Theme.primary : Theme.textPrimary
-                        font.pixelSize: 12
-                        font.weight: root.localeCodes[index] === vm.currentLocaleCode
-                                     ? Font.Medium : Font.Normal
-                    }
+                    RowLayout {
+                        anchors { fill: parent; leftMargin: 10; rightMargin: 10 }
+                        spacing: 6
 
-                    Text {
-                        anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 10 }
-                        text: "✓"
-                        color: Theme.primary; font.pixelSize: 11
-                        visible: root.localeCodes[index] === vm.currentLocaleCode
+                        Text {
+                            text: "✓"
+                            font.pixelSize: 11; font.weight: Font.Medium
+                            color: Theme.primary
+                            visible: root.localeCodes[index] === vm.currentLocaleCode
+                            Layout.preferredWidth: 14
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        Item {
+                            visible: root.localeCodes[index] !== vm.currentLocaleCode
+                            Layout.preferredWidth: 14; Layout.preferredHeight: 1
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: modelData
+                            color: root.localeCodes[index] === vm.currentLocaleCode
+                                   ? Theme.textPrimary : Theme.textSecondary
+                            font.pixelSize: 12
+                            font.weight: root.localeCodes[index] === vm.currentLocaleCode
+                                         ? Font.Medium : Font.Normal
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
 
                     MouseArea {
@@ -149,11 +172,19 @@ Pane {
 
             Behavior on color { ColorAnimation { duration: 100 } }
 
-            Text {
+            Image {
+                id: settingsIcon
                 anchors.centerIn: parent
-                text: "⚙"
-                font.pixelSize: 14
-                color: gearMouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
+                width: 16; height: 16
+                source: "../../assets/settings.svg"
+                sourceSize: Qt.size(32, 32)
+                smooth: true
+                antialiasing: true
+                layer.enabled: true
+                layer.effect: ColorOverlay {
+                    color: gearMouse.containsMouse ? Theme.textPrimary : Theme.textSecondary
+                    Behavior on color { ColorAnimation { duration: 100 } }
+                }
             }
 
             ToolTip.visible: gearMouse.containsMouse
@@ -223,7 +254,7 @@ Pane {
                 Layout.leftMargin: 12
                 Layout.bottomMargin: 3
             }
-            ComboBox {
+            StyledComboBox {
                 id: targetLangCombo
                 model: root.localeNames
                 currentIndex: root.currentTargetIdx
@@ -231,34 +262,6 @@ Pane {
                 Layout.leftMargin: 12; Layout.rightMargin: 12
                 Layout.bottomMargin: 10
                 onActivated: vm.setTranslationTarget(root.localeCodes[currentIndex])
-
-                contentItem: Text {
-                    leftPadding: 8
-                    text: targetLangCombo.displayText
-                    color: Theme.textInput
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
-                    font: targetLangCombo.font
-                }
-                background: Rectangle {
-                    color: targetLangCombo.hovered ? Theme.bgSurface3 : Theme.bgInput
-                    radius: 4
-                    border.color: targetLangCombo.activeFocus ? Theme.borderFocus : Theme.borderInput
-                    border.width: targetLangCombo.activeFocus ? 2 : 1
-                }
-                popup: Popup {
-                    y: targetLangCombo.height
-                    width: targetLangCombo.width
-                    height: Math.min(targetLangListView.contentHeight + 8, 200)
-                    padding: 4
-                    background: Rectangle { color: Theme.bgSurface2; radius: 4; border.color: Theme.borderInput; border.width: 1 }
-                    contentItem: ListView {
-                        id: targetLangListView
-                        model: targetLangCombo.delegateModel
-                        clip: true
-                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                    }
-                }
             }
 
             // ── Tag Pai ───────────────────────────────────────────────────
@@ -684,6 +687,38 @@ Pane {
                         Layout.bottomMargin: 14
                     }
 
+                    // ── Appearance section ────────────────────────────────
+                    Label {
+                        text: vm.strings["appearance_section_title"] ?? "Appearance"
+                        font.pixelSize: 12; font.weight: Font.Medium
+                        color: Theme.textSecondary
+                        Layout.leftMargin: 18
+                        Layout.bottomMargin: 2
+                    }
+                    Label {
+                        text: vm.strings["appearance_section_subtitle"] ?? "Interface theme"
+                        font.pixelSize: 10; color: Theme.textDisabled
+                        Layout.leftMargin: 18
+                        Layout.bottomMargin: 8
+                    }
+
+                    StyledComboBox {
+                        id: themeCombo
+                        model: vm.themeNames
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 18; Layout.rightMargin: 18
+                        Layout.bottomMargin: 16
+
+                        Component.onCompleted: {
+                            var idx = vm.themeNames.indexOf(vm.currentThemeName)
+                            currentIndex = idx >= 0 ? idx : 0
+                        }
+
+                        onActivated: themeCtrl.setTheme(model[currentIndex])
+                    }
+
+                    Item { implicitHeight: 8; Layout.fillWidth: true }
+
                 }
             }
         }
@@ -1050,7 +1085,7 @@ Pane {
                     model: vm.tagPresets
                     clip: true
                     spacing: 4
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: StyledScrollBar {}
 
                     delegate: Rectangle {
                         id: presetDelegate
@@ -1375,7 +1410,7 @@ Pane {
                     model: root.xmlPickerPaths
                     clip: true
                     spacing: 4
-                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    ScrollBar.vertical: StyledScrollBar {}
 
                     delegate: Rectangle {
                         width: ListView.view.width

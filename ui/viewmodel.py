@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import os
 import threading
-from collections.abc import Callable
 
+from PySide6.QtCore import Property as QProperty
 from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
@@ -18,14 +18,12 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtCore import Property as QProperty
 from PySide6.QtWidgets import QFileDialog
 
-from core.app_controller import AppController, PROVIDER_URLS
+from core.app_controller import PROVIDER_URLS, AppController
 from core.i18n import I18nManager
 from core.project import TranslationEntry
 from core.tradutor_api import list_gemini_models
-
 
 # ---------------------------------------------------------------------------
 # Table model
@@ -41,20 +39,23 @@ class TranslationTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._rows: list[TranslationEntry] = []
         self._index: dict[str, int] = {}
-        self._headers = ["Original", "Translation"]
+        self._headers = ["#", "Original", "Translation"]
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._rows)
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        return 0 if parent.isValid() else 2
+        return 0 if parent.isValid() else 3
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid() or index.row() >= len(self._rows):
             return None
         entry = self._rows[index.row()]
+        col = index.column()
         if role == Qt.DisplayRole:
-            return entry.original if index.column() == 0 else entry.translation
+            if col == 0:
+                return index.row() + 1
+            return entry.original if col == 1 else entry.translation
         if role == self.XpathRole:
             return entry.xpath
         if role == self.StatusRole:
@@ -62,7 +63,7 @@ class TranslationTableModel(QAbstractTableModel):
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole and 0 <= section < 2:
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole and 0 <= section < 3:
             return self._headers[section]
         return None
 
@@ -74,8 +75,8 @@ class TranslationTableModel(QAbstractTableModel):
         }
 
     def update_headers(self, original_label: str, translation_label: str) -> None:
-        self._headers = [original_label, translation_label]
-        self.headerDataChanged.emit(Qt.Horizontal, 0, 1)
+        self._headers = ["#", original_label, translation_label]
+        self.headerDataChanged.emit(Qt.Horizontal, 0, 2)
 
     def refresh_all(self, entries: dict[str, TranslationEntry]) -> None:
         self.beginResetModel()
@@ -89,8 +90,9 @@ class TranslationTableModel(QAbstractTableModel):
             return
         self._rows[row].translation = translation
         self._rows[row].status = status
-        left = self.index(row, 1)
-        self.dataChanged.emit(left, left, [Qt.DisplayRole, self.StatusRole])
+        left = self.index(row, 0)
+        right = self.index(row, 2)
+        self.dataChanged.emit(left, right, [Qt.DisplayRole, self.StatusRole])
 
     def xpath_at_row(self, row: int) -> str | None:
         if 0 <= row < len(self._rows):
@@ -130,6 +132,7 @@ class AppViewModel(QObject):
     translationContextChanged = Signal()     # fired when the translation context/theme changes
     xmlPathsFound    = Signal(list)          # multiple XML files found during folder scan
     translationTargetChanged = Signal()      # fired when translation target locale changes
+    themeChanged = Signal()                  # fired when the active theme changes
     apiKeyDialogRequested = Signal(str, str, str)  # (dialog_title, prompt_label, current_key)
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -153,6 +156,7 @@ class AppViewModel(QObject):
         self._is_translating: bool = False
         self._is_single_translating: bool = False
         self._selected_xpath: str = ""
+        self._skip_rows: int = 0
         self._parent_tags: list[str] = []
         self._child_tags: list[str] = []
         self._child_tags_cache: dict[tuple[str, str], list[str]] = {}
@@ -311,12 +315,20 @@ class AppViewModel(QObject):
 
     @QProperty(bool, notify=providerChanged)
     def providerNeedsApiKey(self) -> bool:
-        return self._ctrl.preferred_provider != "Ollama (Local)"
+        return self._ctrl.preferred_provider not in ("Ollama (Local)", "Google Translate (Free)")
+
+    _AI_PROVIDERS = frozenset({"Gemini", "Ollama (Local)"})
+
+    @QProperty(bool, notify=providerChanged)
+    def providerUsesAi(self) -> bool:
+        """True for generative AI providers (Gemini, Ollama) that use context/theme prompts."""
+        return self._ctrl.preferred_provider in self._AI_PROVIDERS
 
     @QProperty(str, notify=providerChanged)
     def providerApiKeyLinkText(self) -> str:
         mapping = {
             "Gemini": "api_key_link_gemini",
+            "Google Translate (Free)": "google_translate_free_note",
             "DeepL": "api_key_link_deepl",
             "Microsoft Azure": "api_key_link_azure",
             "Ollama (Local)": "ollama_no_key",
@@ -361,6 +373,19 @@ class AppViewModel(QObject):
     def translationTargetCode(self) -> str:
         """The locale code used as the AI translation target (independent of UI language)."""
         return self._ctrl.preferred_translation_target or self._ctrl.preferred_locale
+
+    # ------------------------------------------------------------------
+    # Properties — theme
+    # ------------------------------------------------------------------
+
+    @QProperty("QVariantList", constant=True)
+    def themeNames(self) -> list:
+        from ui.theme import THEMES
+        return list(THEMES.keys())
+
+    @QProperty(str, notify=themeChanged)
+    def currentThemeName(self) -> str:
+        return self._ctrl.preferred_theme
 
     # ------------------------------------------------------------------
     # Slots — provider / model
@@ -501,12 +526,17 @@ class AppViewModel(QObject):
         threading.Thread(target=worker, daemon=True).start()
 
     @Slot()
+    @Slot(int)
+    def setSkipRows(self, n: int) -> None:
+        self._skip_rows = max(0, n)
+
     def startBatchTranslation(self) -> None:
         if self._ctrl.preferred_provider != "Ollama (Local)" and not self._ctrl.api_key:
             self.errorOccurred.emit(self._i18n.get("log_api_key_needed"))
             return
         self._set_translating(True)
         config = self._ctrl.build_translation_config(self._selected_model_label, self._models, self._i18n)
+        config["skip_rows"] = self._skip_rows
 
         def on_batch_start(xpaths: list[str]) -> None:
             # Mark rows yellow ("translating") so the user sees activity
@@ -591,6 +621,20 @@ class AppViewModel(QObject):
         if sucesso:
             # Keep _xml_path_selected in sync with the successfully loaded path.
             self._xml_path_selected = path
+
+            # Auto-restore checkpoint for this specific file.
+            from core.project import TranslationProject
+            cp_path = TranslationProject.checkpoint_path(path)
+            _legacy = "textos_traduzidos_checkpoint.json"
+            if not os.path.exists(cp_path) and os.path.exists(_legacy):
+                import shutil
+                shutil.copy2(_legacy, cp_path)
+            restored = self._ctrl.project.load_checkpoint(cp_path)
+            if restored:
+                self.logAppended.emit(
+                    self._i18n.get("log_checkpoint_loaded", n=restored)
+                )
+
             self._table.refresh_all(self._ctrl.project.entries)
             count = len(self._ctrl.project.entries)
             done, total = self._ctrl.project.stats()
@@ -759,6 +803,7 @@ class AppViewModel(QObject):
     @Slot("QVariantList")
     def saveGlossary(self, entries: list) -> None:
         import json
+
         from core.app_controller import resource_path
         path = os.path.join(resource_path("scripts"), "glossario.json")
         os.makedirs(os.path.dirname(path), exist_ok=True)

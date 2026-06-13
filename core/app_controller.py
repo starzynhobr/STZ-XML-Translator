@@ -21,6 +21,7 @@ PRESETS_FILE = "tag_presets.json"
 
 PROVIDER_URLS: dict[str, str] = {
     "Gemini": "https://aistudio.google.com/app/apikey",
+    "Google Translate (Free)": "",
     "DeepL": "https://www.deepl.com/pro-api",
     "Microsoft Azure": "https://portal.azure.com/#create/Microsoft.CognitiveServicesTextTranslation",
     "Ollama (Local)": "https://ollama.ai/download",
@@ -66,6 +67,7 @@ class AppController:
         self._api_keys: dict[str, str] = {}
         self.translation_target: dict[str, str] = TRANSLATION_TARGETS["pt"].copy()
         self.game_folder: str = ""
+        self.preferred_theme: str = "Windows Fluent"
 
         self._load_config()
 
@@ -98,6 +100,7 @@ class AppController:
                 self._api_keys["Gemini"] = data["api_key"]
             self.api_key = self._api_keys.get(self.preferred_provider, "")
             self.game_folder = data.get("game_folder", "")
+            self.preferred_theme = data.get("theme", "Windows Fluent")
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -130,6 +133,7 @@ class AppController:
             "translation_context": self.translation_context,
             "api_keys": {k: v for k, v in self._api_keys.items() if v},
             "game_folder": self.game_folder,
+            "theme": self.preferred_theme,
         }
         try:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -150,6 +154,15 @@ class AppController:
         """Persist and apply the translation target locale. Does NOT change the UI language."""
         self.preferred_translation_target = locale_code
         self.set_translation_target(locale_code)
+        self.save_config(
+            api_key=self.api_key,
+            model_label=self.preferred_model_label,
+            model_id=self.preferred_model_id,
+        )
+
+    def save_preferred_theme(self, theme_name: str) -> None:
+        """Persist the selected UI theme."""
+        self.preferred_theme = theme_name
         self.save_config(
             api_key=self.api_key,
             model_label=self.preferred_model_label,
@@ -417,13 +430,12 @@ class AppController:
         Delete the on-disk checkpoint file and reset all in-memory entry
         translations to pending/empty. Returns the number of entries reset.
         """
-        checkpoint = "textos_traduzidos_checkpoint.json"
-        try:
-            os.remove(checkpoint)
-        except FileNotFoundError:
-            pass
-        except OSError:
-            pass
+        if self.project.xml_path:
+            checkpoint = self.project.checkpoint_path(self.project.xml_path)
+            try:
+                os.remove(checkpoint)
+            except (FileNotFoundError, OSError):
+                pass
         return self.project.reset_translations()
 
     def cancel_translation(self) -> None:

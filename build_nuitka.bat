@@ -1,9 +1,11 @@
 @echo off
-REM Compila o Game XML Translator (versão PySide6 + QML) com Nuitka.
-REM Entry point: main_qt.py   Plugin: pyside6   Inclui: ui/, locales/, assets/
+REM Compila o STZ XML Translator (PySide6 + QML) com Nuitka.
+REM Entry point : main_qt.py
+REM Plugin      : pyside6
+REM Inclui      : ui/ (QML), locales/, assets/, scripts/
 
 echo ========================================
-echo  Compilando com Nuitka (PySide6 + QML)
+echo  STZ XML Translator — Build com Nuitka
 echo ========================================
 echo.
 
@@ -27,13 +29,13 @@ echo  Iniciando compilacao...
 echo ========================================
 echo.
 
-REM Verifica se o ícone existe
+REM Verifica se o icone existe
 set ICON_PARAM=
 if exist "assets\icon.ico" (
     echo Icone encontrado, incluindo no build...
     set ICON_PARAM=--windows-icon-from-ico=assets/icon.ico
 ) else (
-    echo Aviso: icon.ico nao encontrado em assets/, compilando sem icone...
+    echo Aviso: icon.ico nao encontrado em assets\, compilando sem icone...
 )
 
 python -m nuitka ^
@@ -45,16 +47,16 @@ python -m nuitka ^
     --include-data-dir=ui=ui ^
     --include-data-dir=locales=locales ^
     --include-data-dir=assets=assets ^
-    --include-data-dir=core=core ^
+    --include-data-dir=scripts=scripts ^
     --nofollow-import-to=test ^
     --assume-yes-for-downloads ^
-    --output-filename=GameXMLTranslator.exe ^
+    --output-filename=STZXMLTranslator.exe ^
     --output-dir=dist ^
-    --company-name="Game XML Translator" ^
-    --product-name="Game XML Translator" ^
+    --company-name="STZ XML Translator" ^
+    --product-name="STZ XML Translator" ^
     --file-version=1.2.0.0 ^
     --product-version=1.2.0.0 ^
-    --file-description="Tradutor de arquivos XML de jogos" ^
+    --file-description="STZ XML Translator — Ferramenta de traducao de arquivos XML" ^
     --windows-uac-admin=no ^
     main_qt.py
 
@@ -64,7 +66,7 @@ if %ERRORLEVEL% EQU 0 (
     echo  Compilacao concluida com sucesso!
     echo ========================================
     echo.
-    echo O executavel foi gerado em: dist\GameXMLTranslator.exe
+    echo Executavel gerado em: dist\STZXMLTranslator.exe
     echo.
     pause
 ) else (

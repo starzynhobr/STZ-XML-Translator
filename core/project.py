@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -94,6 +95,21 @@ class TranslationProject:
     # ------------------------------------------------------------------
     # Checkpoint (resume support)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def checkpoint_path(xml_path: str) -> str:
+        """Return a per-file checkpoint path inside the checkpoints/ folder.
+
+        Format: checkpoints/<stem>_<8-char hash>.json
+        The hash is derived from the absolute XML path, so two files with
+        the same name in different directories get different checkpoints.
+        """
+        abs_path = os.path.abspath(xml_path)
+        h = hashlib.md5(abs_path.encode()).hexdigest()[:8]
+        stem = os.path.splitext(os.path.basename(abs_path))[0]
+        folder = "checkpoints"
+        os.makedirs(folder, exist_ok=True)
+        return os.path.join(folder, f"{stem}_{h}.json")
 
     def save_checkpoint(self, path: str) -> bool:
         """Persist current translations to a JSON checkpoint file."""
@@ -191,7 +207,7 @@ class TranslationProject:
         """
         try:
             count = 0
-            with open(path, newline="", encoding="utf-8") as f:
+            with open(path, newline="", encoding="utf-8-sig") as f:
                 for row in csv.DictReader(f):
                     xpath = row.get("xpath")
                     translation = row.get("translated_text")

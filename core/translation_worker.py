@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import re
 import threading
-import time
 from collections.abc import Callable
 
 from core.project import TranslationProject
-from core.tradutor_api import get_gemini_model, translate_batch_ollama, translate_text
+from core.tradutor_api import (
+    get_gemini_model,
+    translate_batch_google_free,
+    translate_batch_ollama,
+    translate_text,
+)
 
 
 class TranslationWorker:
@@ -17,7 +21,10 @@ class TranslationWorker:
     batch-block format, other providers translate one entry at a time.
     """
 
-    CHECKPOINT_FILE = "textos_traduzidos_checkpoint.json"
+    @property
+    def _checkpoint_file(self) -> str:
+        from core.project import TranslationProject
+        return TranslationProject.checkpoint_path(self._project.xml_path)
     BATCH_SIZE = 120
     BATCH_DELAY_SECONDS = 5
 
@@ -79,6 +86,7 @@ class TranslationWorker:
             "all_done":            "Todos os itens já estão traduzidos no checkpoint.",
             "batch_start":        "Iniciando tradução em lote: {total} itens pendentes.",
             "sending_gemini":     "Enviando lote de {n} itens para a API Gemini…",
+            "sending_google":     "Traduzindo lote de {n} itens com Google Translate…",
             "cancelled":          "Tradução cancelada pelo usuário.",
             "batch_failed":       "Falha no lote — interrompendo tradução.",
             "items_skipped":      "AVISO: {n} item(ns) pulados pela IA neste lote.",
@@ -98,11 +106,15 @@ class TranslationWorker:
     def _run(self) -> None:
         project = self._project
 
-        loaded = project.load_checkpoint(self.CHECKPOINT_FILE)
+        loaded = project.load_checkpoint(self._checkpoint_file)
         if loaded:
             self._on_log(self._s("checkpoint_loaded", n=loaded))
 
-        pending = project.get_pending_entries()
+        skip_rows = int(self._config.get("skip_rows", 0))
+        all_entries = list(project.entries.values())
+        candidates = all_entries[skip_rows:] if skip_rows > 0 else all_entries
+        pending = [e for e in candidates if e.status != "done"]
+
         if not pending:
             self._on_log(self._s("all_done"))
             self._on_done()
@@ -127,6 +139,34 @@ class TranslationWorker:
                 self._on_log(self._s("sending_gemini", n=len(batch)))
 
                 results = self._translate_batch_gemini(batch)
+
+                if self._cancel_event.is_set():
+                    self._on_log(self._s("cancelled"))
+                    self._on_done()
+                    return
+
+                if results is None:
+                    self._on_log(self._s("batch_failed"))
+                    break
+
+                skipped = 0
+                for entry in batch:
+                    text = results.get(entry.xpath)
+                    if text:
+                        project.set_translation(entry.xpath, text, status="done")
+                        self._on_entry_translated(entry.xpath, text)
+                    else:
+                        skipped += 1
+
+                if skipped:
+                    self._on_log(self._s("items_skipped", n=skipped))
+
+            elif service == "Google Translate (Free)":
+                if self._on_batch_start:
+                    self._on_batch_start([e.xpath for e in batch])
+                self._on_log(self._s("sending_google", n=len(batch)))
+
+                results = translate_batch_google_free(batch, self._config)
 
                 if self._cancel_event.is_set():
                     self._on_log(self._s("cancelled"))
@@ -196,7 +236,7 @@ class TranslationWorker:
                 if failed:
                     break
 
-            project.save_checkpoint(self.CHECKPOINT_FILE)
+            project.save_checkpoint(self._checkpoint_file)
             done, _ = project.stats()
             self._on_log(self._s("batch_count", done=done))
 

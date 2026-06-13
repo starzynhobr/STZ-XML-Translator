@@ -148,10 +148,20 @@ Item {
         padding: 4
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
+        enter: Transition {
+            ParallelAnimation {
+                NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: 120; easing.type: Easing.OutQuad }
+                NumberAnimation { property: "y"; from: root.height - 2; to: root.height + 2; duration: 120; easing.type: Easing.OutCubic }
+            }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: 80; easing.type: Easing.InQuad }
+        }
+
         background: Rectangle {
             color: Theme.bgSurface2
-            radius: 4
-            border.color: Theme.borderInput
+            radius: 7
+            border.color: Theme.borderModerate
             border.width: 1
         }
 
@@ -159,16 +169,14 @@ Item {
             id: listView
             model: ListModel { id: filteredModel }
             clip: true
-            ScrollBar.vertical: ScrollBar {
-                policy: ScrollBar.AsNeeded
-                minimumSize: 0.1
-            }
+            ScrollBar.vertical: StyledScrollBar {}
 
             delegate: Rectangle {
                 width: listView.width
                 height: 34
                 color: itemMouse.containsMouse ? Theme.bgSurface3 : "transparent"
-                radius: 3
+                radius: 4
+                Behavior on color { ColorAnimation { duration: 80 } }
 
                 // Tag name
                 Text {
