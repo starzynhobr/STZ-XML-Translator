@@ -18,6 +18,7 @@ TRANSLATION_TARGETS: dict[str, dict[str, str]] = {
 
 CONFIG_FILE = "config.json"
 PRESETS_FILE = "tag_presets.json"
+APP_DATA_DIR_NAME = "STZ XML Translator"
 
 PROVIDER_URLS: dict[str, str] = {
     "Gemini": "https://aistudio.google.com/app/apikey",
@@ -39,6 +40,63 @@ def resource_path(relative_path: str) -> str:
         base_path = os.path.dirname(os.path.abspath(__file__))
         base_path = os.path.join(base_path, "..")  # core/ → project root
     return os.path.normpath(os.path.join(base_path, relative_path))
+
+
+def _is_packaged_app() -> bool:
+    """Return True when running from a bundled executable instead of python.exe."""
+    exe_name = os.path.basename(sys.executable).lower()
+    return bool(
+        getattr(sys, "frozen", False)
+        or "__compiled__" in globals()
+        or not exe_name.startswith("python")
+    )
+
+
+def user_data_dir() -> str:
+    """
+    Writable directory for user state in packaged builds.
+
+    During local development/tests we keep the old cwd-relative behaviour so
+    existing workflows remain predictable. Packaged apps may run from read-only
+    install folders, so config and presets must live under LocalAppData.
+    """
+    override = os.environ.get("STZ_XML_TRANSLATOR_DATA_DIR")
+    if override:
+        return os.path.abspath(override)
+
+    if not _is_packaged_app():
+        return os.getcwd()
+
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return os.path.join(base, APP_DATA_DIR_NAME)
+
+    return os.path.join(os.path.expanduser("~"), f".{APP_DATA_DIR_NAME.replace(' ', '-').lower()}")
+
+
+def user_data_path(filename: str) -> str:
+    return os.path.join(user_data_dir(), filename)
+
+
+def _legacy_cwd_path(filename: str) -> str:
+    return os.path.abspath(filename)
+
+
+def _readable_user_file(filename: str) -> str:
+    """Prefer the writable user-data file, falling back to legacy cwd files."""
+    primary = user_data_path(filename)
+    if os.environ.get("STZ_XML_TRANSLATOR_DATA_DIR"):
+        return primary
+
+    if os.path.exists(primary):
+        return primary
+
+    legacy = _legacy_cwd_path(filename)
+    if os.path.exists(legacy):
+        return legacy
+
+    return primary
 
 
 class AppController:
@@ -76,10 +134,11 @@ class AppController:
     # ------------------------------------------------------------------
 
     def _load_config(self) -> None:
-        if not os.path.exists(CONFIG_FILE):
+        config_path = _readable_user_file(CONFIG_FILE)
+        if not os.path.exists(config_path):
             return
         try:
-            with open(CONFIG_FILE, encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 data = json.load(f)
             self.preferred_provider = data.get("provider", "Gemini")
             self.preferred_locale = data.get("locale", "pt_BR")
@@ -136,7 +195,8 @@ class AppController:
             "theme": self.preferred_theme,
         }
         try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            os.makedirs(user_data_dir(), exist_ok=True)
+            with open(user_data_path(CONFIG_FILE), "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except OSError:
             pass
@@ -174,11 +234,13 @@ class AppController:
         self.game_folder = path
         try:
             data: dict = {}
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, encoding="utf-8") as f:
+            config_path = _readable_user_file(CONFIG_FILE)
+            if os.path.exists(config_path):
+                with open(config_path, encoding="utf-8") as f:
                     data = json.load(f)
             data["game_folder"] = path
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            os.makedirs(user_data_dir(), exist_ok=True)
+            with open(user_data_path(CONFIG_FILE), "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except (OSError, json.JSONDecodeError):
             pass
@@ -384,6 +446,7 @@ class AppController:
             "source_label": self.source_language_label,
             "translation_context": self.translation_context,
             "ollama_thinking": self.ollama_thinking,
+            "checkpoint_dir": user_data_path("checkpoints"),
         }
         if i18n:
             cfg["_strings"] = {
@@ -404,9 +467,14 @@ class AppController:
 
     def current_checkpoint_path(self) -> str:
         """Checkpoint path for the currently loaded XML and translation target."""
+        return self.checkpoint_path_for(self.project.xml_path)
+
+    def checkpoint_path_for(self, xml_path: str) -> str:
+        """Checkpoint path for an XML file using the app's writable data directory."""
         return self.project.checkpoint_path(
-            self.project.xml_path,
+            xml_path,
             self.translation_target.get("code", ""),
+            user_data_path("checkpoints"),
         )
 
     # ------------------------------------------------------------------
@@ -493,9 +561,10 @@ class AppController:
     def get_tag_presets(self) -> list[dict]:
         """Load all saved tag presets from disk. Returns [] if none exist."""
         try:
-            if not os.path.exists(PRESETS_FILE):
+            presets_path = _readable_user_file(PRESETS_FILE)
+            if not os.path.exists(presets_path):
                 return []
-            with open(PRESETS_FILE, encoding="utf-8") as f:
+            with open(presets_path, encoding="utf-8") as f:
                 data = json.load(f)
             return data.get("presets", [])
         except (OSError, json.JSONDecodeError):
@@ -611,13 +680,14 @@ class AppController:
             existing_keys.add(key)
             imported += 1
 
-        if imported > 0:
-            self._write_presets(existing)
+        if imported > 0 and not self._write_presets(existing):
+            return (-1, 0)
         return (imported, skipped)
 
     def _write_presets(self, presets: list[dict]) -> bool:
         try:
-            with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+            os.makedirs(user_data_dir(), exist_ok=True)
+            with open(user_data_path(PRESETS_FILE), "w", encoding="utf-8") as f:
                 json.dump({"presets": presets}, f, indent=2, ensure_ascii=False)
             return True
         except OSError:

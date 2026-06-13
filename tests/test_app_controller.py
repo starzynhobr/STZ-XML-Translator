@@ -179,3 +179,43 @@ class TestPreferredTheme:
         )
         ctrl = AppController()
         assert ctrl.preferred_theme == "Windows Fluent"
+
+
+class TestTagPresetPersistence:
+    def test_import_presets_uses_configured_user_data_dir(self, tmp_path, monkeypatch):
+        data_dir = tmp_path / "data"
+        source = tmp_path / "presets.json"
+        source.write_text(
+            """
+            {
+              "presets": [
+                {
+                  "label": "Items",
+                  "parent_tag": "item",
+                  "target_tag": "dispName",
+                  "file": "items.xml"
+                }
+              ]
+            }
+            """,
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(data_dir))
+
+        ctrl = AppController()
+        imported, skipped = ctrl.import_presets(str(source))
+
+        assert (imported, skipped) == (1, 0)
+        assert (data_dir / "tag_presets.json").exists()
+        assert ctrl.get_tag_presets()[0]["label"] == "Items"
+
+    def test_import_presets_reports_write_failure(self, tmp_path, monkeypatch):
+        source = tmp_path / "presets.json"
+        source.write_text(
+            '{"presets":[{"label":"Items","parent_tag":"item","target_tag":"dispName"}]}',
+            encoding="utf-8",
+        )
+        ctrl = AppController()
+        monkeypatch.setattr(ctrl, "_write_presets", lambda _presets: False)
+
+        assert ctrl.import_presets(str(source)) == (-1, 0)

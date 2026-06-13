@@ -98,7 +98,7 @@ class TranslationProject:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def checkpoint_path(xml_path: str, target_lang: str = "") -> str:
+    def checkpoint_path(xml_path: str, target_lang: str = "", folder: str = "checkpoints") -> str:
         """Return a per-file checkpoint path inside the checkpoints/ folder.
 
         Format: checkpoints/<stem>_<target>_<8-char hash>.json
@@ -109,7 +109,6 @@ class TranslationProject:
         target = re.sub(r"[^a-z0-9_-]+", "_", (target_lang or "").lower()).strip("_")
         h = hashlib.md5(f"{abs_path}|{target}".encode()).hexdigest()[:8]
         stem = os.path.splitext(os.path.basename(abs_path))[0]
-        folder = "checkpoints"
         os.makedirs(folder, exist_ok=True)
         suffix = f"_{target}" if target else ""
         return os.path.join(folder, f"{stem}{suffix}_{h}.json")

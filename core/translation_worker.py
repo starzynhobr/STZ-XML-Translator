@@ -27,6 +27,7 @@ class TranslationWorker:
         return TranslationProject.checkpoint_path(
             self._project.xml_path,
             self._config.get("target_lang", ""),
+            self._config.get("checkpoint_dir", "checkpoints"),
         )
     BATCH_SIZE = 120
     BATCH_DELAY_SECONDS = 5

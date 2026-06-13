@@ -638,9 +638,8 @@ class AppViewModel(QObject):
             self._xml_path_selected = path
 
             # Auto-restore checkpoint for this specific file.
-            from core.project import TranslationProject
             target_lang = self._ctrl.translation_target.get("code", "")
-            cp_path = TranslationProject.checkpoint_path(path, target_lang)
+            cp_path = self._ctrl.checkpoint_path_for(path)
             _legacy = "textos_traduzidos_checkpoint.json"
             if target_lang == "pt" and not os.path.exists(cp_path) and os.path.exists(_legacy):
                 import shutil
