@@ -41,6 +41,26 @@ No API key is required to run the app. Google Translate (free) works out of the 
 
 ---
 
+## Installing a Release Build
+
+Release builds are distributed as a signed MSIX package. Download these three files from the same GitHub Release and keep them in the same folder:
+
+- `STZXMLTranslator-x.y.z.0.msix`
+- `STZXMLTranslator.cer`
+- `install-app.ps1`
+
+Then run the installer script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-app.ps1
+```
+
+Why a script? The MSIX is signed with the project's certificate, so Windows must trust the public `.cer` certificate before installing the package. The script is intentionally small and readable: it installs `STZXMLTranslator.cer` into the Windows Trusted Root store and then installs the `.msix` with `Add-AppxPackage`.
+
+If you prefer to review it first, open `install-app.ps1` in a text editor before running it. The private signing key is not included in the release; it is stored only as a GitHub Actions secret.
+
+---
+
 ## Using the App
 
 1. **Load XML** — click **Load XML File** and pick your file. The app auto-detects repeating tags. Choose the **Parent Tag** (the repeating element, e.g. `hero`) and **Target Tag** (the field to translate, e.g. `bio`), then click **Reload** to populate the table.
@@ -118,7 +138,8 @@ ui/
     AppButton.qml        Themed button base
 locales/                 UI strings — en_US, pt_BR, es_ES, fr_FR, ja_JP
 assets/
-  icon.ico               Application icon
+  stz-xml.png            Source application icon
+  icon.ico               Generated build icon (ignored by Git)
   settings.svg           Settings gear icon (colour-tokenized via ColorOverlay)
 tests/
   test_theme.py          Theme token structure and palette tests (43 cases)
