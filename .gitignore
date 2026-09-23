@@ -75,6 +75,7 @@ nuitka-crash-report*.xml
 
 # Dados de runtime gerados pelo app
 tag_presets.json
+/glossario*.json
 
 # Ferramentas de desenvolvimento / agentes
 .agents/

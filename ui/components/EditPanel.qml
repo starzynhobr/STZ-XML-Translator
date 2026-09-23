@@ -286,7 +286,8 @@ Pane {
             objectName: "providerOptionsToggle"
             visible: root.streamlined
             Layout.fillWidth: true
-            text: vm.selectedProvider + " · "
+            accented: vm.providerUsesAi
+            text: (vm.providerUsesAi ? "✨ " : "") + vm.selectedProvider + " · "
                 + (vm.strings["topbar_settings"] ?? "Settings")
                 + (root.providerOptionsExpanded ? "  ⌄" : "  ›")
             checkable: true
@@ -905,10 +906,15 @@ Pane {
         // ---- Apply the current translation to exact duplicate originals ----
         AppButton {
             id: applyDuplicatesBtn
-            property int matchCount: root.xpath === "" ? 0 : vm.countDuplicates(root.xpath)
+            property int matchCount: {
+                var revision = vm.reviewRevision
+                return root.xpath === ""
+                    ? 0
+                    : vm.countDuplicateUpdates(root.xpath, translationArea.text)
+            }
             text: (vm.strings["apply_duplicates_button"] ?? "Apply to {count} identical entries")
                   .replace("{count}", matchCount)
-            visible: matchCount > 1
+            visible: matchCount > 0
             Layout.fillWidth: true
             Layout.preferredHeight: 34
             enabled: translationArea.text.trim() !== "" && !vm.isTranslating && !vm.isXmlBusy
@@ -916,7 +922,7 @@ Pane {
             ToolTip.visible: hovered
             ToolTip.delay: 400
             ToolTip.text: vm.strings["apply_duplicates_tooltip"]
-                              ?? "Matches the complete original text and changes pending entries only."
+                              ?? "Updates matching unconfirmed entries whose translation differs."
             background: Rectangle {
                 color: applyDuplicatesBtn.enabled
                     ? (applyDuplicatesBtn.hovered ? Theme.bgSurface3 : Theme.bgSurface2)

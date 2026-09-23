@@ -275,6 +275,58 @@ def apply_glossary(text: str, target_lang: str) -> tuple[str, bool]:
     return prepared_text, prepared_text != text
 
 
+def protect_glossary_for_ai(text: str, target_lang: str) -> tuple[str, dict[str, str]]:
+    """Replace matching terms with opaque tokens while AI translates the rest."""
+    normalized_target = (target_lang or "pt").lower()
+    if normalized_target != "pt":
+        return text, {}
+
+    pairs = sorted(
+        carregar_glossario(normalized_target).items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    )
+    protected = text
+    replacements: dict[str, str] = {}
+    counter = 0
+
+    for original_term, target_term in pairs:
+        def repl(match: re.Match, replacement: str = target_term) -> str:
+            nonlocal counter
+            token = f"STZGLOSSARYTOKEN{counter}END"
+            counter += 1
+            matched = match.group(0)
+            if matched.isupper():
+                replacement = replacement.upper()
+            elif matched.islower():
+                replacement = replacement.lower()
+            replacements[token] = replacement
+            return token
+
+        protected = re.sub(re.escape(original_term), repl, protected, flags=re.IGNORECASE)
+
+    return protected, replacements
+
+
+def restore_glossary_tokens(text: str, replacements: dict[str, str]) -> str:
+    """Restore protected AI glossary tokens with their required translations."""
+    for token, replacement in replacements.items():
+        text = text.replace(token, replacement)
+    return text
+
+
+def glossary_ai_instruction(replacements: dict[str, str]) -> str:
+    """Build the constraint used by AI providers for protected glossary tokens."""
+    if not replacements:
+        return ""
+    tokens = ", ".join(replacements)
+    return (
+        f"The tokens {tokens} represent glossary terms. Keep every token exactly unchanged. "
+        "Translate all surrounding text completely; do not treat the glossary token as the "
+        "only text that needs translation.\n"
+    )
+
+
 def protect_glossary_for_xml(text: str, target_lang: str) -> tuple[str, bool]:
     """Wrap glossary replacements in XML tags that translation APIs can ignore."""
     normalized_target = (target_lang or "pt").lower()
@@ -409,27 +461,18 @@ class GeminiService(TranslationService):
 
         model = get_gemini_model(config.get("model", "gemini-1.5-flash"), api_key=api_key)
 
-        pretranslated_text, glossary_used = apply_glossary(text, target_lang)
-
-        if glossary_used and target_lang == "pt":
-            prompt = (
-                "Act as a game localization specialist.\n"
-                f"{context_block}"
-                "Refine the following pre-translated sentence so it sounds natural in "
-                f"{target_label}, keeping the words that are already in Portuguese untouched. "
-                f'Text: "{pretranslated_text}". Reply with the final text only.'
-            )
-        else:
-            prompt = (
-                "Act as a game localization specialist.\n"
-                f"{context_block}"
-                f"Translate the following text to {target_label}. "
-                "Detect the source language automatically. "
-                f'"{text}". Reply with the final text only.'
-            )
+        protected_text, glossary_tokens = protect_glossary_for_ai(text, target_lang)
+        prompt = (
+            "Act as a game localization specialist.\n"
+            f"{context_block}"
+            f"{glossary_ai_instruction(glossary_tokens)}"
+            f"Translate the following text to {target_label}. "
+            "Detect the source language automatically. "
+            f'"{protected_text}". Reply with the final text only.'
+        )
 
         response = model.generate_content(prompt)
-        return response.text.strip()
+        return restore_glossary_tokens(response.text.strip(), glossary_tokens)
 
 
 class DeepLService(TranslationService):

@@ -26,14 +26,27 @@ ComboBox {
             font: control.font
         }
 
-        Text {
+        Canvas {
             id: chevron
+            objectName: "comboChevron"
+            width: 16
+            height: 16
             anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 10 }
-            text: "▾"
-            color: Theme.textSecondary
-            font.pixelSize: 9
-            rotation: control.popup.visible ? 180 : 0
-            Behavior on rotation { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            property color strokeColor: control.enabled ? Theme.textSecondary : Theme.textDisabled
+            onStrokeColorChanged: requestPaint()
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.beginPath()
+                ctx.moveTo(3, 6)
+                ctx.lineTo(8, 11)
+                ctx.lineTo(13, 6)
+                ctx.lineWidth = 1.8
+                ctx.lineCap = "round"
+                ctx.lineJoin = "round"
+                ctx.strokeStyle = strokeColor
+                ctx.stroke()
+            }
         }
     }
 
@@ -49,57 +62,55 @@ ComboBox {
     // ── Popup ─────────────────────────────────────────────────────────
     popup: Popup {
         id: cbPopup
+        objectName: "comboPopup"
         y: control.height + 3
-        width: control.width
-        // +20px vertical padding (10 top + 10 bottom) so rounding errors at any DPI
-        // never push contentHeight over viewHeight and trigger an unwanted scrollbar.
-        height: Math.min(control.count * 36 + 20, 256)
+        width: Math.max(control.width, 220)
+        height: Math.min(control.count * 36 + 8, 260)
         padding: 4
+        topPadding: 4
+        bottomPadding: 4
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-        // Only animate opacity — animating `y` while the `y` property has a
-        // static binding breaks that binding under Qt 6 and shifts the popup.
-        enter: Transition {
-            NumberAnimation {
-                property: "opacity"; from: 0.0; to: 1.0
-                duration: 120; easing.type: Easing.OutQuad
-            }
-        }
-        exit: Transition {
-            NumberAnimation {
-                property: "opacity"; from: 1.0; to: 0.0
-                duration: 80; easing.type: Easing.InQuad
-            }
-        }
+        onOpened: Qt.callLater(function() {
+            if (control.currentIndex >= 0)
+                cbList.positionViewAtIndex(control.currentIndex, ListView.Contain)
+        })
 
         background: Rectangle {
-            color: Theme.bgSurface2
-            radius: 7
-            border.color: Theme.borderModerate
+            color: Theme.bgInput
+            radius: 6
+            border.color: Theme.borderInput
             border.width: 1
         }
 
         contentItem: ListView {
             id: cbList
+            objectName: "comboPopupList"
             model: control.delegateModel
             clip: true
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: StyledScrollBar {}
-
-            // When the list is populated, scroll so the selected item is visible.
-            // We do NOT set currentIndex here — that conflicts with delegateModel's
-            // own state tracking and caused item 0 to disappear on open.
-            onCountChanged: {
-                if (count > 0 && control.currentIndex >= 0)
-                    positionViewAtIndex(control.currentIndex, ListView.Beginning)
+            ScrollBar.vertical: ScrollBar {
+                policy: control.count * 36 > cbList.height + 1
+                    ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                implicitWidth: 5
+                minimumSize: 0.15
+                background: Item {}
+                contentItem: Rectangle {
+                    implicitWidth: 3
+                    radius: 2
+                    color: Theme.textSecondary
+                    opacity: parent.pressed ? 0.8 : parent.hovered ? 0.65 : 0.4
+                }
             }
+
         }
     }
 
     // ── Item delegate ─────────────────────────────────────────────────
     delegate: ItemDelegate {
         id: del
-        width: ListView.view ? ListView.view.width : control.width
+        width: ListView.view
+            ? ListView.view.width - (control.count * 36 > cbList.height + 1 ? 8 : 0)
+            : control.width
         height: 36
         padding: 0
 
@@ -112,7 +123,7 @@ ComboBox {
                      : isCurrent
 
         background: Rectangle {
-            color: del.highlighted ? Theme.bgSurface3 : "transparent"
+            color: del.highlighted ? Theme.bgSurface1 : "transparent"
             radius: 4
             Behavior on color { ColorAnimation { duration: 80 } }
         }
@@ -140,7 +151,7 @@ ComboBox {
                 Layout.fillWidth: true
                 text: modelData ?? ""
                 font.pixelSize: 13
-                color: del.highlighted ? Theme.textPrimary : Theme.textSecondary
+                color: Theme.textPrimary
                 font.weight: del.isCurrent ? Font.Medium : Font.Normal
                 elide: Text.ElideRight
                 verticalAlignment: Text.AlignVCenter

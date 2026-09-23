@@ -183,7 +183,7 @@ class AppController:
         self.translation_target: dict[str, str] = TRANSLATION_TARGETS["pt"].copy()
         self.game_folder: str = ""
         self.preferred_theme: str = "Windows Fluent"
-        self.preferred_ui_mode: str = "classic"
+        self.preferred_ui_mode: str = "modern"
         self.last_update_check: float = 0.0
         self.skipped_update_version: str = ""
 
@@ -220,8 +220,8 @@ class AppController:
             self.api_key = self._api_keys.get(self.preferred_provider, "")
             self.game_folder = data.get("game_folder", "")
             self.preferred_theme = data.get("theme", "Windows Fluent")
-            ui_mode = data.get("ui_mode", "classic")
-            self.preferred_ui_mode = ui_mode if ui_mode in {"classic", "modern"} else "classic"
+            ui_mode = data.get("ui_mode", "modern")
+            self.preferred_ui_mode = ui_mode if ui_mode in {"classic", "modern"} else "modern"
             try:
                 self.last_update_check = float(data.get("last_update_check", 0.0))
             except (TypeError, ValueError):

@@ -196,6 +196,20 @@ class TranslationProject:
             if entry.original == source.original and (not pending_only or entry.needs_translation)
         )
 
+    def duplicate_update_count(self, xpath: str, translation: str) -> int:
+        """Count unconfirmed duplicate rows whose translation differs from the draft."""
+        source = self.entries.get(xpath)
+        if not source or not translation.strip():
+            return 0
+        return sum(
+            1
+            for entry in self.entries.values()
+            if entry.xpath != xpath
+            and entry.original == source.original
+            and entry.status not in (EntryStatus.CONFIRMED, EntryStatus.TRANSLATING)
+            and entry.translation != translation
+        )
+
     def apply_translation_to_duplicates(
         self, xpath: str, translation: str, pending_only: bool = True
     ) -> list[str]:
@@ -208,7 +222,13 @@ class TranslationProject:
         for entry in self.entries.values():
             if entry.original != source.original:
                 continue
+            if entry.status == EntryStatus.TRANSLATING:
+                continue
+            if entry.status == EntryStatus.CONFIRMED and entry.xpath != xpath:
+                continue
             if pending_only and not entry.needs_translation and entry.xpath != xpath:
+                continue
+            if entry.translation == translation and entry.status == EntryStatus.TRANSLATED:
                 continue
             entry.set_translation(translation)
             changed.append(entry.xpath)

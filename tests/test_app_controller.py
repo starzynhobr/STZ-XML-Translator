@@ -325,10 +325,10 @@ class TestPreferredTheme:
 
 
 class TestPreferredUiMode:
-    def test_default_ui_mode_is_classic(self, tmp_path, monkeypatch):
+    def test_default_ui_mode_is_modern(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         ctrl = AppController()
-        assert ctrl.preferred_ui_mode == "classic"
+        assert ctrl.preferred_ui_mode == "modern"
 
     def test_save_preferred_ui_mode_persists(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -338,7 +338,16 @@ class TestPreferredUiMode:
         ctrl2 = AppController()
         assert ctrl2.preferred_ui_mode == "modern"
 
-    def test_invalid_saved_ui_mode_falls_back_to_classic(self, tmp_path, monkeypatch):
+    def test_saved_classic_ui_is_preserved(self, tmp_path, monkeypatch):
+        import json
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "config.json").write_text(
+            json.dumps({"ui_mode": "classic"}), encoding="utf-8"
+        )
+        assert AppController().preferred_ui_mode == "classic"
+
+    def test_invalid_saved_ui_mode_falls_back_to_modern(self, tmp_path, monkeypatch):
         import json
 
         monkeypatch.chdir(tmp_path)
@@ -346,13 +355,13 @@ class TestPreferredUiMode:
             json.dumps({"ui_mode": "unknown"}), encoding="utf-8"
         )
         ctrl = AppController()
-        assert ctrl.preferred_ui_mode == "classic"
+        assert ctrl.preferred_ui_mode == "modern"
 
     def test_invalid_ui_mode_is_not_persisted(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         ctrl = AppController()
         ctrl.save_preferred_ui_mode("unknown")
-        assert ctrl.preferred_ui_mode == "classic"
+        assert ctrl.preferred_ui_mode == "modern"
 
 
 class TestTagPresetPersistence:

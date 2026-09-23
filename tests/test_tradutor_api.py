@@ -99,6 +99,36 @@ class TestApplyGlossary:
         assert text == "The Sword is ready"
         assert used is False
 
+    def test_gemini_translates_surrounding_text_and_restores_glossary_term(
+        self, tmp_path, monkeypatch
+    ):
+        (tmp_path / "glossario_pt.json").write_text(
+            json.dumps({"Hammerhead": "Cabeça de Martelo"}), encoding="utf-8"
+        )
+        monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(tmp_path))
+        model = MagicMock()
+        model.generate_content.return_value.text = (
+            "STZGLOSSARYTOKEN0END venderá para qualquer um: Roxxon, Brand, Latvéria..."
+        )
+
+        with patch("core.tradutor_api.get_gemini_model", return_value=model):
+            result = GeminiService().translate(
+                "Hammerhead will sell to anyone: Roxxon, Brand, Latveria...",
+                {
+                    "api_key": "fake",
+                    "target_lang": "pt",
+                    "target_label": "Portuguese (Brazil)",
+                },
+            )
+
+        prompt = model.generate_content.call_args.args[0]
+        assert "STZGLOSSARYTOKEN0END will sell to anyone" in prompt
+        assert "Cabeça de Martelo will sell to anyone" not in prompt
+        assert "Translate all surrounding text" in prompt
+        assert result == (
+            "Cabeça de Martelo venderá para qualquer um: Roxxon, Brand, Latvéria..."
+        )
+
     def test_protects_glossary_terms_for_xml_translation(self, tmp_path, monkeypatch):
         (tmp_path / "glossario_pt.json").write_text(
             json.dumps({"Sword": "Espada"}), encoding="utf-8"

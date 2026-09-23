@@ -4,7 +4,7 @@ from core.project import TranslationEntry, TranslationProject
 from core.translation_worker import TranslationWorker
 
 
-def test_gemini_batch_applies_glossary_to_prompt():
+def test_gemini_batch_protects_and_restores_glossary_terms():
     project = TranslationProject()
     worker = TranslationWorker(
         project=project,
@@ -26,18 +26,22 @@ def test_gemini_batch_applies_glossary_to_prompt():
     )
     model = MagicMock()
     model.generate_content.return_value.text = (
-        "[ID: /root/item[1]/bio[1]]\nA Espada está pronta\n---"
+        "[ID: /root/item[1]/bio[1]]\nTEXT TO TRANSLATE:\n"
+        "A STZGLOSSARYTOKEN0END está pronta\n---"
     )
 
     with (
         patch("core.translation_worker.get_gemini_model", return_value=model),
-        patch("core.translation_worker.apply_glossary", return_value=("The Espada is ready", True)),
+        patch(
+            "core.translation_worker.protect_glossary_for_ai",
+            return_value=("The STZGLOSSARYTOKEN0END is ready", {"STZGLOSSARYTOKEN0END": "Espada"}),
+        ),
     ):
         result = worker._translate_batch_gemini([entry])
 
     prompt = model.generate_content.call_args.args[0]
-    assert "The Espada is ready" in prompt
-    assert "Keep those glossary terms unchanged" in prompt
+    assert "The STZGLOSSARYTOKEN0END is ready" in prompt
+    assert "Translate all surrounding text" in prompt
     assert '"dispName": "WHIPLASH"' in prompt
     assert "Do not translate or return" in prompt
     assert result == {"/root/item[1]/bio[1]": "A Espada está pronta"}

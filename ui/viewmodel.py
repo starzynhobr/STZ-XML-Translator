@@ -939,10 +939,14 @@ class AppViewModel(QObject):
     def countDuplicates(self, xpath: str) -> int:
         return self._ctrl.project.duplicate_count(xpath, pending_only=True)
 
+    @Slot(str, str, result=int)
+    def countDuplicateUpdates(self, xpath: str, text: str) -> int:
+        return self._ctrl.project.duplicate_update_count(xpath, text)
+
     @Slot(str, str)
     def applyTranslationToDuplicates(self, xpath: str, text: str) -> None:
         changed = self._ctrl.project.apply_translation_to_duplicates(
-            xpath, text, pending_only=True
+            xpath, text, pending_only=False
         )
         for changed_xpath in changed:
             self._table.update_entry(changed_xpath, text, "done")

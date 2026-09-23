@@ -169,6 +169,32 @@ class TestTranslationProjectEntryAccess:
 
         assert project.duplicate_count("/a") == 2
 
+    def test_duplicate_update_count_reappears_when_translation_changes(self):
+        project = TranslationProject()
+        project.entries = {
+            "/a": TranslationEntry("/a", "Same", "Optional collaboration", "done"),
+            "/b": TranslationEntry("/b", "Same", "Optional collaboration", "done"),
+            "/c": TranslationEntry("/c", "Same", "Reviewed", "confirmed"),
+        }
+
+        assert project.duplicate_update_count("/a", "Optional collaboration") == 0
+        assert project.duplicate_update_count("/a", "Optional ally") == 1
+
+    def test_reapply_duplicates_updates_completed_but_preserves_confirmed(self):
+        project = TranslationProject()
+        project.entries = {
+            "/a": TranslationEntry("/a", "Same", "Optional collaboration", "done"),
+            "/b": TranslationEntry("/b", "Same", "Optional collaboration", "done"),
+            "/c": TranslationEntry("/c", "Same", "Reviewed", "confirmed"),
+        }
+
+        changed = project.apply_translation_to_duplicates(
+            "/a", "Optional ally", pending_only=False
+        )
+
+        assert changed == ["/a", "/b"]
+        assert project.entries["/c"].translation == "Reviewed"
+
 
 class TestTranslationProjectStats:
     def test_stats_initial(self, loaded_project):

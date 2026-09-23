@@ -1,6 +1,6 @@
 [project]
 name = "stz-xml-translator"
-version = "1.4.0"
+version = "1.5.0"
 requires-python = ">=3.12"
 description = "Desktop tool for translating game XML files using AI translation services"
 dependencies = [

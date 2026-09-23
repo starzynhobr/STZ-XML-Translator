@@ -6,7 +6,7 @@ import QtQuick.Controls.FluentWinUI3
 Dialog {
     id: root
     title: vm.strings["glossary_window_title"] ?? "Manage Glossary"
-    width: 580
+    width: Math.min(620, Overlay.overlay ? Overlay.overlay.width - 32 : 620)
     modal: true
     anchors.centerIn: Overlay.overlay
     padding: 0
@@ -23,11 +23,11 @@ Dialog {
     // Header
     // ---------------------------------------------------------------
     header: Item {
-        implicitHeight: 56
+        implicitHeight: 48
 
         Label {
             anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
-                      leftMargin: 20; rightMargin: 20 }
+                      leftMargin: 16; rightMargin: 16 }
             text: root.title
             font.pixelSize: 16
             font.weight: Font.DemiBold
@@ -50,10 +50,10 @@ Dialog {
         // Column labels
         RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: 14
+            Layout.topMargin: 10
             Layout.bottomMargin: 6
-            Layout.leftMargin: 20
-            Layout.rightMargin: 20
+            Layout.leftMargin: 16
+            Layout.rightMargin: 16
             spacing: 8
 
             Label {
@@ -76,25 +76,27 @@ Dialog {
         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
 
         // Term list
-        ScrollView {
+        ListView {
+            id: termList
+            objectName: "glossaryTermList"
             Layout.fillWidth: true
-            implicitHeight: Math.min(termList.contentHeight + 16, 280)
-            Layout.topMargin: 8
+            implicitHeight: Math.min(Math.max(glossaryModel.count * 38 + 16, 48), 312)
+            Layout.topMargin: 4
+            model: glossaryModel
+            spacing: 4
             clip: true
-            ScrollBar.vertical: StyledScrollBar {}
+            boundsBehavior: Flickable.StopAtBounds
+            leftMargin: 16
+            rightMargin: 16
+            topMargin: 4
+            bottomMargin: 4
+            ScrollBar.vertical: StyledScrollBar {
+                policy: termList.contentHeight > termList.height + 1
+                    ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+            }
 
-            ListView {
-                id: termList
-                model: glossaryModel
-                spacing: 4
-                clip: true
-                leftMargin: 20
-                rightMargin: 20
-                topMargin: 4
-                bottomMargin: 4
-
-                delegate: RowLayout {
-                    width: termList.width - termList.leftMargin - termList.rightMargin
+            delegate: RowLayout {
+                    width: termList.width - termList.leftMargin - termList.rightMargin - 10
                     spacing: 8
 
                     TextField {
@@ -102,6 +104,8 @@ Dialog {
                         text: model.original
                         placeholderText: vm.strings["glossary_original_placeholder"] ?? "Original term…"
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 0
+                        Layout.minimumWidth: 0
                         implicitHeight: 34
                         onEditingFinished: glossaryModel.setProperty(index, "original", text)
                         onTextEdited:      glossaryModel.setProperty(index, "original", text)
@@ -118,6 +122,8 @@ Dialog {
                         text: model.translation
                         placeholderText: vm.strings["glossary_translation_placeholder"] ?? "Translation…"
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 0
+                        Layout.minimumWidth: 0
                         implicitHeight: 34
                         onEditingFinished: glossaryModel.setProperty(index, "translation", text)
                         onTextEdited:      glossaryModel.setProperty(index, "translation", text)
@@ -150,19 +156,18 @@ Dialog {
                             onClicked: glossaryModel.remove(index)
                         }
                     }
-                }
             }
         }
 
         // Add Term button row
-        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle; Layout.topMargin: 8 }
+        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle; Layout.topMargin: 4 }
 
         Item {
             Layout.fillWidth: true
-            implicitHeight: 52
+            implicitHeight: 46
 
             AppButton {
-                anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 20 }
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 16 }
                 text: vm.strings["glossary_add_button"] ?? "+ Add Term"
                 onClicked: {
                     glossaryModel.append({"original": "", "translation": ""})
@@ -191,13 +196,14 @@ Dialog {
         glossaryModel.clear()
         for (var i = 0; i < loaded.length; i++)
             glossaryModel.append(loaded[i])
+        termList.contentY = 0
     }
 
     // ---------------------------------------------------------------
     // Footer
     // ---------------------------------------------------------------
     footer: Item {
-        implicitHeight: 60
+        implicitHeight: 52
 
         Rectangle {
             anchors.top: parent.top

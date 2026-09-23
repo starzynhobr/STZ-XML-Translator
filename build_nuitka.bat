@@ -7,7 +7,7 @@ REM  Apenas flags dinamicas ficam aqui.
 REM ============================================================
 
 REM --- Versao (fonte unica: altere aqui para um novo release) ---
-set APP_VERSION=1.4.0.0
+set APP_VERSION=1.5.0.0
 for /f "tokens=1-3 delims=." %%a in ("%APP_VERSION%") do set APP_SEMVER=%%a.%%b.%%c
 
 REM --- UPX pos-build ---

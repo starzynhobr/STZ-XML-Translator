@@ -110,7 +110,6 @@ def test_modern_top_bar_exposes_global_actions():
     for object_name in (
         "topBarLoadButton",
         "topBarTargetLocale",
-        "topBarProgress",
         "topBarTranslateButton",
         "topBarGlossaryButton",
         "topBarSettingsButton",
@@ -124,9 +123,9 @@ def test_modern_top_bar_keeps_primary_action_compact():
         encoding="utf-8"
     )
 
-    assert "Layout.fillWidth: root.compact" in top_bar_qml
-    assert "Layout.preferredWidth: 188" in top_bar_qml
-    assert "Layout.maximumWidth: 200" in top_bar_qml
+    assert "Layout.preferredWidth: root.loadedFileName === \"\" ? 140 : 200" in top_bar_qml
+    assert "Layout.preferredWidth: 192" in top_bar_qml
+    assert "root.progressDone + \"/\" + root.progressTotal" in top_bar_qml
 
 
 def test_modern_shell_uses_streamlined_collapsible_structure_panel():

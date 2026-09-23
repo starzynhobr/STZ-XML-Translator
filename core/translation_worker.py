@@ -6,10 +6,12 @@ from collections.abc import Callable
 
 from core.project import TranslationProject
 from core.tradutor_api import (
-    apply_glossary,
     build_reference_context,
     get_gemini_model,
+    glossary_ai_instruction,
+    protect_glossary_for_ai,
     provider_supports_context,
+    restore_glossary_tokens,
     translate_batch_google_free,
     translate_batch_ollama,
     translate_text,
@@ -342,30 +344,28 @@ class TranslationWorker:
             target_label = self._config.get("target_label", "Portuguese (Brazil)")
             target_lang = self._config.get("target_lang", "pt")
             prepared_entries = []
-            glossary_used = False
+            glossary_tokens_by_xpath: dict[str, dict[str, str]] = {}
             for entry in batch:
-                prepared, used = apply_glossary(entry.original, target_lang)
+                prepared, glossary_tokens = protect_glossary_for_ai(
+                    entry.original, target_lang
+                )
                 entry_config = self._config_for_entry(entry)
                 reference_context = build_reference_context(entry_config)
-                prepared_entries.append((entry.xpath, prepared, reference_context))
-                glossary_used = glossary_used or used
+                instruction = glossary_ai_instruction(glossary_tokens)
+                prepared_entries.append(
+                    (entry.xpath, prepared, reference_context, instruction)
+                )
+                glossary_tokens_by_xpath[entry.xpath] = glossary_tokens
             batch_text = "".join(
-                f"[ID: {xpath}]\n{reference_context}TEXT TO TRANSLATE:\n{text}\n---\n"
-                for xpath, text, reference_context in prepared_entries
-            )
-            glossary_line = (
-                "Some entries contain glossary replacements already written in the target "
-                "language. Keep those glossary terms unchanged while making the surrounding "
-                "text natural.\n"
-                if glossary_used
-                else ""
+                f"[ID: {xpath}]\n{reference_context}{instruction}"
+                f"TEXT TO TRANSLATE:\n{text}\n---\n"
+                for xpath, text, reference_context, instruction in prepared_entries
             )
             prompt = (
                 "Act as a game localization specialist.\n"
                 "Each entry below contains an ID, optional reference context, and text.\n"
                 "Translate only the text after TEXT TO TRANSLATE. Do not translate or return "
                 "the reference context.\n"
-                f"{glossary_line}"
                 f"Translate every entry to {target_label}. Keep proper nouns and character names that should not be translated. Keep the IDs and separators exactly as provided.\n\n"
                 "---BEGIN BLOCK---\n"
                 f"{batch_text}\n"
@@ -373,7 +373,13 @@ class TranslationWorker:
             )
             response = model.generate_content(prompt)
             pairs = re.findall(r"\[ID: (.*?)\]\n(.*?)\n---", response.text, re.DOTALL)
-            return {xpath.strip(): text.strip() for xpath, text in pairs}
+            return {
+                xpath.strip(): restore_glossary_tokens(
+                    re.sub(r"^TEXT TO TRANSLATE:\s*", "", text.strip()),
+                    glossary_tokens_by_xpath.get(xpath.strip(), {}),
+                )
+                for xpath, text in pairs
+            }
         except Exception as exc:
             self._batch_error_code = classify_error(exc)
             self._on_log(self._s("api_error", exc=ERROR_MESSAGES[self._batch_error_code]))

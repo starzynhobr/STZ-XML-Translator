@@ -9,9 +9,9 @@ from core.version import _build_script_version, app_version
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_canonical_build_version_is_1_4_0():
-    assert _build_script_version(ROOT / "build_nuitka.bat") == (1, 4, 0, 0)
-    assert app_version() == "1.4.0"
+def test_canonical_build_version_is_1_5_0():
+    assert _build_script_version(ROOT / "build_nuitka.bat") == (1, 5, 0, 0)
+    assert app_version() == "1.5.0"
 
 
 def test_nuitka_output_reads_version_from_windows_executable(monkeypatch):

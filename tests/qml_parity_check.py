@@ -89,7 +89,9 @@ def main():
             for theme in ("Windows Fluent", "Light Azure"):
                 ctx.setContextProperty("Theme", THEMES[theme])
                 app.setPalette(build_palette(THEMES[theme]))
-                for width, height in ((1024, 620), (1280, 760), (1600, 900)):
+                sizes = ((900, 620), (1024, 620), (1280, 760), (1600, 900)) \
+                    if shell == "ModernMain.qml" else ((1024, 620), (1280, 760), (1600, 900))
+                for width, height in sizes:
                     root.resize(width, height)
                     settle(app)
                     if shell == "ModernMain.qml":
@@ -127,6 +129,56 @@ def main():
                         assert QQuickWindow.grabWindow(root).save(str(output / f"{shell}-{theme}-popup.png"))
                         QTest.keyClick(root, Qt.Key_Escape)
                         settle(app)
+                        if shell == "ModernMain.qml" and not loaded:
+                            target = root.findChild(QQuickItem, "topBarTargetLocale")
+                            chevron = target.findChild(QQuickItem, "comboChevron")
+                            assert chevron is not None
+                            closed_position = chevron.mapToScene(QPointF(0, 0))
+                            center = target.mapToScene(QPointF(target.width() / 2, target.height() / 2))
+                            QTest.mouseClick(root, Qt.LeftButton, Qt.NoModifier, center.toPoint())
+                            settle(app)
+                            popup_list = root.findChild(QQuickItem, "comboPopupList")
+                            popup = root.findChild(QObject, "comboPopup")
+                            assert popup_list.height() == popup.property("height") - 8
+                            assert popup_list.property("contentY") % 36 == 0
+                            open_position = chevron.mapToScene(QPointF(0, 0))
+                            assert open_position == closed_position
+                            assert QQuickWindow.grabWindow(root).save(
+                                str(output / f"ModernMain.qml-{theme}-language-open.png")
+                            )
+                            QTest.keyClick(root, Qt.Key_Escape)
+                            settle(app)
+                            assert chevron.mapToScene(QPointF(0, 0)) == closed_position
+                        if shell == "ModernMain.qml" and theme == "Light Azure" and loaded:
+                            terms = {f"Term {i}": f"Tradução {i}" for i in range(20)}
+                            with patch("core.tradutor_api.carregar_glossario", return_value=terms):
+                                invoke(root.findChild(QObject, "editorRegion"), "openGlossary")
+                                QTest.qWait(250)
+                                settle(app)
+                                glossary_list = root.findChild(QQuickItem, "glossaryTermList")
+                                assert glossary_list is not None
+                                assert 250 <= glossary_list.height() <= 312, (
+                                    glossary_list.height(), glossary_list.property("count"),
+                                    root.findChild(QObject, "glossaryDialog").property("visible"),
+                                )
+                                assert QQuickWindow.grabWindow(root).save(
+                                    str(output / "ModernMain.qml-Light Azure-glossary.png")
+                                )
+                                QTest.keyClick(root, Qt.Key_Escape)
+                                settle(app)
+                            with patch("core.tradutor_api.carregar_glossario", return_value={
+                                "Hammerhead": "Cabeça de Martelo", "Roxxon": "Roxxon",
+                            }):
+                                invoke(root.findChild(QObject, "editorRegion"), "openGlossary")
+                                QTest.qWait(250)
+                                settle(app)
+                                assert glossary_list.property("count") == 2
+                                assert 80 <= glossary_list.height() <= 100
+                                assert QQuickWindow.grabWindow(root).save(
+                                    str(output / "ModernMain.qml-Light Azure-glossary-short.png")
+                                )
+                                QTest.keyClick(root, Qt.Key_Escape)
+                                settle(app)
                     if loaded:
                         selector = root.findChild(QObject, "statusFilterSelector")
                         assert selector is not None
@@ -229,11 +281,11 @@ def main():
             for locale in ("pt_BR", "en_US", "es_ES", "fr_FR", "ja_JP"):
                 vm._i18n.load_language(locale)
                 vm.languageChanged.emit()
-                root.resize(1024, 620)
+                root.resize(900, 620)
                 settle(app)
                 for name in ("topBarExportButton", "nextEntryButton", "tableCommandRegion"):
                     item = root.findChild(QQuickItem, name)
-                    assert item.mapToScene(QPointF(0, 0)).x() + item.width() <= 1025
+                    assert item.mapToScene(QPointF(0, 0)).x() + item.width() <= 901
         else:
             target_selector = root.findChild(QObject, "sidebarTargetLocale")
             assert target_selector.property("count") == 9
@@ -241,7 +293,7 @@ def main():
         root.close()
         del root, engine
         settle(app)
-    print(f"PASS: {scenarios} captures; two shells, two themes, three sizes, empty/loaded/filtered/update; navigation/focus/log/filter.")
+    print(f"PASS: {scenarios} captures; two shells, two themes, responsive sizes, empty/loaded/filtered/update; navigation/focus/log/filter.")
     print(output)
 
 

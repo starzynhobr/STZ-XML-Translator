@@ -207,7 +207,7 @@ def test_selected_batch_translates_only_the_selected_rows(vm, monkeypatch):
     assert vm.isTranslating is False
 
 
-def test_duplicate_action_updates_pending_exact_matches_only(vm):
+def test_duplicate_action_updates_matching_unconfirmed_entries(vm):
     vm._ctrl.project.entries = {
         "/a": TranslationEntry("/a", "Same line"),
         "/b": TranslationEntry("/b", "Same line"),
@@ -222,6 +222,16 @@ def test_duplicate_action_updates_pending_exact_matches_only(vm):
     assert vm._ctrl.project.entries["/b"].translation == "Mesma linha"
     assert vm._ctrl.project.entries["/c"].translation == "Reviewed"
     assert vm._ctrl.project.entries["/d"].translation == ""
+
+
+def test_duplicate_action_count_uses_edited_translation(vm):
+    vm._ctrl.project.entries = {
+        "/a": TranslationEntry("/a", "Same line", "Colaboração opcional", "done"),
+        "/b": TranslationEntry("/b", "Same line", "Colaboração opcional", "done"),
+    }
+
+    assert vm.countDuplicateUpdates("/a", "Colaboração opcional") == 0
+    assert vm.countDuplicateUpdates("/a", "Aliado opcional") == 1
 
 
 def test_reload_extracts_outside_the_ui_thread(vm, monkeypatch):
