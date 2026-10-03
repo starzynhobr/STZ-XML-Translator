@@ -1,3 +1,4 @@
+import Select from '@/components/Select'
 import { MessageSquare } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
@@ -274,25 +275,13 @@ export default function Settings({ state, refresh, onBack, onOpenUpdate }: Props
               </div>
             </Row>
             <Row title={t('appLanguage')} htmlFor="app-lang">
-              <select id="app-lang" className={fieldClass} value={settings.locale} onChange={(event) => void change({ locale: event.target.value })}>
-                {Object.entries(settings.locales).map(([name, code]) => (
-                  <option key={code} value={code}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+              <Select id="app-lang" className="w-[240px] max-w-full" value={settings.locale} onChange={(value) => void change({ locale: value })} options={Object.entries(settings.locales).map(([label, value]) => ({ value, label }))} />
             </Row>
           </Section>
 
           <Section id="translation" title={t('translationSection')}>
             <Row title={t('defaultProvider')} htmlFor="provider">
-              <select id="provider" className={fieldClass} value={settings.provider} onChange={(event) => void change({ provider: event.target.value })}>
-                {settings.providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {providerLabel(provider.id, t)}
-                  </option>
-                ))}
-              </select>
+              <Select id="provider" className="w-[240px] max-w-full" value={settings.provider} onChange={(value) => void change({ provider: value })} options={settings.providers.map((provider) => ({ value: provider.id, label: providerLabel(provider.id, t) }))} />
             </Row>
             <div className="flex flex-col">
               <div className="font-medium">{t('apiKeys')}</div>
@@ -303,13 +292,7 @@ export default function Settings({ state, refresh, onBack, onOpenUpdate }: Props
             </div>
             {gemini?.hasKey && settings.models.length > 0 && (
               <Row title={t('geminiModel')} htmlFor="gemini-model">
-                <select id="gemini-model" className={cx(fieldClass, 'max-w-[280px]')} value={settings.model} onChange={(event) => void change({ model: event.target.value })}>
-                  {settings.models.map((model) => (
-                    <option key={model.label} value={model.label}>
-                      {model.label} · {t(model.paid ? 'paid' : 'free')}
-                    </option>
-                  ))}
-                </select>
+                <Select id="gemini-model" className="max-w-[280px]" value={settings.model} onChange={(value) => void change({ model: value })} options={settings.models.map((model) => ({ value: model.label, label: `${model.label} · ${t(model.paid ? 'paid' : 'free')}` }))} />
               </Row>
             )}
             {hasOllama && (

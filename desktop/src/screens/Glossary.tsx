@@ -1,12 +1,14 @@
-import { ArrowRight, Trash2 } from 'lucide-react'
+import FloatingPanel from '@/components/FloatingPanel'
+import { ArrowRight, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Button, PageHeader, cardClass, cx, eyebrowClass, fieldClass } from '@/components/ui'
+import { Button, IconButton, PageHeader, cardClass, cx, eyebrowClass, fieldClass } from '@/components/ui'
 import { api, type Term } from '@/lib/bridge'
 import { JSON_FILTER, pickFile, pickSavePath } from '@/lib/files'
 import { errorText, useT } from '@/lib/i18n'
 
 interface Props {
+  floating?: boolean
   terms: Term[]
   /** Display name of the target language this glossary belongs to. */
   language: string
@@ -16,7 +18,7 @@ interface Props {
 
 const ROW = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-4'
 
-export default function Glossary({ terms, language, onChange, onBack }: Props) {
+export default function Glossary({ floating = false, terms, language, onChange, onBack }: Props) {
   const t = useT()
   const [original, setOriginal] = useState('')
   const [translation, setTranslation] = useState('')
@@ -58,16 +60,22 @@ export default function Glossary({ terms, language, onChange, onBack }: Props) {
     )
   }
 
-  return (
+  const content = (
     <div className="flex min-h-full flex-col">
-      <PageHeader title={t('glossary')} onBack={onBack} backLabel={t('backToBench')}>
+      {floating ? <header className="flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
+        <h1 className="m-0 text-xl font-semibold">{t('glossary')}</h1>
+        <span className="flex-1" />
+        <Button onClick={() => void importFile()}>{t('import')}</Button>
+        <Button onClick={() => void exportFile()} disabled={!terms.length}>{t('export')}</Button>
+        <IconButton label={t('close')} onClick={onBack}><X aria-hidden="true" size={18} /></IconButton>
+      </header> : <PageHeader title={t('glossary')} onBack={onBack} backLabel={t('backToBench')}>
         <Button onClick={() => void importFile()}>{t('import')}</Button>
         <Button onClick={() => void exportFile()} disabled={!terms.length}>
           {t('export')}
         </Button>
-      </PageHeader>
+      </PageHeader>}
 
-      <div className="mx-auto flex w-full max-w-[920px] flex-1 flex-col gap-5 px-5 pb-12 pt-8">
+      <div className={cx('mx-auto flex w-full max-w-[920px] flex-1 flex-col gap-5 px-5', floating ? 'py-5' : 'pb-12 pt-8')}>
         <p className="m-0 max-w-[640px] text-[15px] text-dim">{t('glossaryIntro', { lang: language })}</p>
 
         <form
@@ -95,7 +103,7 @@ export default function Glossary({ terms, language, onChange, onBack }: Props) {
           </Button>
         </form>
 
-        <section aria-label={t('glossary')} className={cx(cardClass, 'overflow-x-auto')}>
+        <section aria-label={t('glossary')} className={cx(cardClass, 'overflow-auto', floating && 'max-h-[min(320px,40vh)]')}>
           <div className="min-w-[480px]">
             <div className={cx(ROW, eyebrowClass, 'border-b border-line px-4 py-3')}>
               <span>{t('colOriginal')}</span>
@@ -130,4 +138,5 @@ export default function Glossary({ terms, language, onChange, onBack }: Props) {
       </div>
     </div>
   )
+  return floating ? <FloatingPanel label={t('glossary')} onDismiss={onBack}>{content}</FloatingPanel> : content
 }

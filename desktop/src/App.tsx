@@ -10,7 +10,7 @@ import Glossary from '@/screens/Glossary'
 import Settings from '@/screens/Settings'
 import Start from '@/screens/Start'
 
-type Screen = 'main' | 'start' | 'settings' | 'glossary'
+type Screen = 'main' | 'start' | 'settings'
 
 const systemTheme = () => (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
 
@@ -69,6 +69,7 @@ function RecoveryNotice({ status }: { status: EngineStatus | null }) {
 export default function App() {
   const { state, entries, online, engineStatus, refresh } = useEngine()
   const [screen, setScreen] = useState<Screen>('main')
+  const [glossaryOpen, setGlossaryOpen] = useState(false)
   const [terms, setTerms] = useState<Term[]>([])
   const [updateOpen, setUpdateOpen] = useState(false)
   const [announced, setAnnounced] = useState('')
@@ -105,19 +106,7 @@ export default function App() {
     content = <Waiting offline={!online} status={engineStatus} onRetry={() => { void retryEngine().then(refresh) }} />
   } else if (screen === 'settings') {
     content = <Settings state={state} refresh={refresh} onBack={() => setScreen('main')} onOpenUpdate={openUpdate} />
-  } else if (screen === 'glossary') {
-    content = (
-      <Glossary
-        terms={terms}
-        language={Object.entries(state.settings.targets).find(([, code]) => code === state.settings.target)?.[0] ?? state.settings.target}
-        onChange={(next) => {
-          setTerms(next)
-          void refresh()
-        }}
-        onBack={() => setScreen('main')}
-      />
-    )
-  } else if (screen === 'start' || !state.loaded) {
+  } else if (!state.loaded) {
     content = (
       <Start
         state={state}
@@ -125,7 +114,7 @@ export default function App() {
         onLoaded={() => setScreen('main')}
         onBack={state.loaded ? () => setScreen('main') : null}
         onOpenSettings={() => setScreen('settings')}
-        onOpenGlossary={() => setScreen('glossary')}
+        onOpenGlossary={() => setGlossaryOpen(true)}
       />
     )
   } else {
@@ -137,7 +126,7 @@ export default function App() {
         refresh={refresh}
         onOpenStart={() => setScreen('start')}
         onOpenSettings={() => setScreen('settings')}
-        onOpenGlossary={() => setScreen('glossary')}
+        onOpenGlossary={() => setGlossaryOpen(true)}
         onOpenUpdate={openUpdate}
       />
     )
@@ -147,6 +136,17 @@ export default function App() {
     <I18nProvider locale={settings?.locale ?? 'pt_BR'}>
       <RecoveryNotice status={engineStatus} />
       <div className="h-full overflow-y-auto">{content}</div>
+      {state && online && screen === 'start' && state.loaded && <Start
+        floating state={state} refresh={refresh}
+        onLoaded={() => setScreen('main')} onBack={() => setScreen('main')}
+        onOpenSettings={() => setScreen('settings')} onOpenGlossary={() => setGlossaryOpen(true)}
+      />}
+      {state && online && glossaryOpen && <Glossary
+        floating terms={terms}
+        language={Object.entries(state.settings.targets).find(([, code]) => code === state.settings.target)?.[0] ?? state.settings.target}
+        onChange={(next) => { setTerms(next); void refresh() }}
+        onBack={() => setGlossaryOpen(false)}
+      />}
       {state && updateOpen && state.update.available && (
         <UpdateDialog update={state.update} refresh={refresh} onClose={() => setUpdateOpen(false)} />
       )}

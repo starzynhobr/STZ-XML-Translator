@@ -46,7 +46,8 @@ test('opens a file, picks the fields and loads the entries', async ({ page }) =>
 test('translates one entry, confirms it and translates the rest', async ({ page }) => {
   await page.goto('/')
   await expect(rows(page)).toHaveCount(4)
-  await page.locator('select[name=provider]').selectOption('Ollama (Local)')
+  await page.locator('button[name=provider]').click()
+  await page.getByRole('option', { name: 'Ollama · local', exact: true }).click()
 
   const editor = page.getByRole('textbox', { name: 'Tradução' })
   const inspector = page.getByRole('complementary')
@@ -104,16 +105,18 @@ test('keeps a glossary for the target language', async ({ page }) => {
   await page.getByRole('button', { name: 'Adicionar termo' }).click()
   await expect(page.getByText(`${before + 1} termos · salvo automaticamente`)).toBeVisible()
 
-  await page.getByRole('button', { name: 'Voltar à tradução' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click()
   await expect(page.getByRole('button', { name: `Glossário: ${before + 1} termos` })).toBeVisible()
   // The inspector points out the term in the selected text.
   await rows(page).first().click()
   await expect(page.getByText('sword → espada')).toBeVisible()
 
   // Another target language has its own, empty glossary.
-  await page.locator('select[name=target]').selectOption('es_ES')
+  await page.locator('button[name=target]').click()
+  await page.getByRole('option', { name: 'Español (España)', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Glossário: 0 termos' })).toBeVisible()
-  await page.locator('select[name=target]').selectOption('pt_BR')
+  await page.locator('button[name=target]').click()
+  await page.getByRole('option', { name: 'Português (Brasil)', exact: true }).click()
   await expect(page.getByRole('button', { name: `Glossário: ${before + 1} termos` })).toBeVisible()
 })
 
@@ -145,10 +148,12 @@ test('settings: theme, language and an API key that is not stored in plain text'
   await page.getByRole('button', { name: 'Escuro' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 
-  await page.getByLabel('Idioma do aplicativo').selectOption('en_US')
+  await page.getByLabel('Idioma do aplicativo').click()
+  await page.getByRole('option', { name: 'English (US)', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
-  await page.getByLabel('App language').selectOption('pt_BR')
+  await page.getByLabel('App language').click()
+  await page.getByRole('option', { name: 'Português (Brasil)', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Configurações' })).toBeVisible()
 
   const deepl = page.locator('div.border-t', { hasText: 'DeepL' }).first()
@@ -163,10 +168,12 @@ test('settings: theme, language and an API key that is not stored in plain text'
 test('a provider without a key explains itself instead of translating', async ({ page }) => {
   await page.goto('/')
   await expect(rows(page)).toHaveCount(4)
-  await page.locator('select[name=provider]').selectOption('Microsoft Azure')
+  await page.locator('button[name=provider]').click()
+  await page.getByRole('option', { name: 'Microsoft Azure', exact: true }).click()
   await page.getByRole('complementary').getByRole('button', { name: 'Traduzir', exact: true }).click()
   await expect(page.getByText('Este provedor precisa de uma chave de API. Adicione em Configurações.')).toBeVisible()
-  await page.locator('select[name=provider]').selectOption('Ollama (Local)')
+  await page.locator('button[name=provider]').click()
+  await page.getByRole('option', { name: 'Ollama · local', exact: true }).click()
 })
 
 test('a new version shows its release notes inside the app', async ({ page }) => {
@@ -201,6 +208,6 @@ test('going back to the fields keeps the current choice', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'O que vamos traduzir?' })).toBeVisible()
   await expect(tagGroup(page, 'Campos para traduzir').getByRole('button', { name: 'description' })).toHaveAttribute('aria-pressed', 'true')
   await expect(tagGroup(page, 'Campos de contexto').getByRole('button', { name: 'name', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('button', { name: 'Voltar à tradução' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click()
   await expect(progress(page)).toHaveText('2 confirmadas · 2 a revisar · 0 pendentes')
 })

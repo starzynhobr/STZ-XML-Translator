@@ -1,3 +1,4 @@
+import Select from '@/components/Select'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { ChevronDown, ChevronUp, FileText, Search, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -200,38 +201,14 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
           </Button>
         )}
         <div className="flex-[1_1_24px]" />
-        <label className="flex items-center gap-2 text-[13px] text-dim">
+        <div className="flex items-center gap-2 text-[13px] text-dim">
           {t('to')}
-          <select
-            className={cx(fieldClass, 'max-w-[190px] border-edge bg-chip text-sm')}
-            name="target"
-            value={settings.target}
-            disabled={state.translating}
-            onChange={(event) => void run(() => api('/api/settings', 'PUT', { target: event.target.value }))}
-          >
-            {Object.entries(settings.targets).map(([name, code]) => (
-              <option key={code} value={code}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-2 text-[13px] text-dim">
+          <Select aria-label={t('to')} name="target" className="w-[190px] max-w-full text-sm" value={settings.target} disabled={state.translating} onChange={(value) => void run(() => api('/api/settings', 'PUT', { target: value }))} options={Object.entries(settings.targets).map(([label, value]) => ({ value, label }))} />
+        </div>
+        <div className="flex items-center gap-2 text-[13px] text-dim">
           {t('with')}
-          <select
-            className={cx(fieldClass, 'max-w-[230px] border-edge bg-chip text-sm')}
-            name="provider"
-            value={settings.provider}
-            disabled={state.translating}
-            onChange={(event) => void run(() => api('/api/settings', 'PUT', { provider: event.target.value }))}
-          >
-            {settings.providers.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {providerLabel(provider.id, t)}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Select aria-label={t('with')} name="provider" className="w-[230px] max-w-full text-sm" value={settings.provider} disabled={state.translating} onChange={(value) => void run(() => api('/api/settings', 'PUT', { provider: value }))} options={settings.providers.map((provider) => ({ value: provider.id, label: providerLabel(provider.id, t) }))} />
+        </div>
         {state.translating ? (
           <Button onClick={() => void run(() => api('/api/translate/cancel', 'POST'))}>{t('cancelTranslation')}</Button>
         ) : (
@@ -278,7 +255,7 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
             {t('progress', { c: counts.confirmed, r: counts.translated, p: counts.pending + counts.translating + counts.error })}
           </div>
         </div>
-        <label className={cx(fieldClass, 'flex flex-[0_1_300px] items-center gap-2 border-edge bg-chip text-dim')}>
+        <label className={cx(fieldClass, 'search-field flex flex-[0_1_300px] items-center gap-2 border-edge bg-chip text-dim')}>
           <Search aria-hidden="true" size={16} className="shrink-0" />
           <input
             type="search"

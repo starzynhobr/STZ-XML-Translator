@@ -115,6 +115,20 @@ select:not(:disabled) {
   outline-offset: 2px;
 }
 
+.themed-options {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.search-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.search-field input:focus-visible { outline: none; }
+
 /* Thin scrollbars that match the ground instead of the OS default. */
 * {
   scrollbar-width: thin;
