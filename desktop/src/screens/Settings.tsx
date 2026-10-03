@@ -135,6 +135,7 @@ export default function Settings({ state, refresh, onBack, onOpenUpdate }: Props
   const { settings, update } = state
   const [ollama, setOllama] = useState(settings.ollamaModel)
   const [context, setContext] = useState(settings.context)
+  const [region, setRegion] = useState(settings.azureRegion)
   const [presetCount, setPresetCount] = useState(0)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
@@ -318,6 +319,31 @@ export default function Settings({ state, refresh, onBack, onOpenUpdate }: Props
                   value={ollama}
                   onChange={(event) => setOllama(event.target.value)}
                   onBlur={() => ollama.trim() && ollama !== settings.ollamaModel && void change({ ollamaModel: ollama })}
+                  className={cx(fieldClass, 'w-[180px] font-mono')}
+                />
+              </Row>
+            )}
+            {hasOllama && (
+              <label className="flex min-h-11 items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={settings.ollamaThinking}
+                  onChange={(event) => void change({ ollamaThinking: event.target.checked })}
+                  className="mt-0.5 size-5 shrink-0 accent-(--accent)"
+                />
+                <span>
+                  <span className="block font-medium">{t('ollamaThinking')}</span>
+                  <span className="text-[13px] text-dim">{t('ollamaThinkingHint')}</span>
+                </span>
+              </label>
+            )}
+            {settings.providers.some((provider) => provider.id === 'Microsoft Azure') && (
+              <Row title={t('azureRegion')} hint={t('azureRegionHint')} htmlFor="azure-region">
+                <input
+                  id="azure-region"
+                  value={region}
+                  onChange={(event) => setRegion(event.target.value)}
+                  onBlur={() => region.trim() !== settings.azureRegion && void change({ azureRegion: region })}
                   className={cx(fieldClass, 'w-[180px] font-mono')}
                 />
               </Row>

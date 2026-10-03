@@ -116,6 +116,25 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 
+REM --- Interface desktop ---
+REM A interface desktop e o motor congelado compartilham o mesmo installer.
+echo.
+echo Compilando interface desktop...
+pushd desktop
+call npm ci
+if errorlevel 1 (
+    popd
+    exit /b 1
+)
+call npm run tauri build -- --no-bundle
+if errorlevel 1 (
+    popd
+    exit /b 1
+)
+popd
+copy /y "desktop\src-tauri\target\release\stz-xml-translator.exe" "dist\main_qt.dist\stz-xml-translator.exe" >nul
+if errorlevel 1 exit /b 1
+
 REM --- UPX (pos-build, opcional) ---
 if "%USE_UPX%"=="1" (
     echo.
@@ -151,9 +170,11 @@ if "%BUILD_INSTALLER%"=="1" (
                 echo Installer gerado: dist\STZXMLTranslator-Setup-%APP_SEMVER%.exe
             ) else (
                 echo Erro ao gerar installer.
+                exit /b 1
             )
         ) else (
             echo Aviso: ISCC.exe nao encontrado. Instale o Inno Setup 6.
+            exit /b 1
         )
     )
 )
@@ -167,7 +188,7 @@ if "%BUILD_MODE%"=="onefile" (
     echo Executavel : dist\STZXMLTranslator.exe
 ) else (
     echo Pasta      : dist\main_qt.dist\
-    echo Executavel : dist\main_qt.dist\STZXMLTranslator.exe
+    echo Executavel : dist\main_qt.dist\stz-xml-translator.exe
 )
 if "%BUILD_REPORT%"=="1" echo Relatorio  : compilation-report.xml
 echo.

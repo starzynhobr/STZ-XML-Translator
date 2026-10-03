@@ -204,6 +204,7 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
           {t('to')}
           <select
             className={cx(fieldClass, 'max-w-[190px] border-edge bg-chip text-sm')}
+            name="target"
             value={settings.target}
             disabled={state.translating}
             onChange={(event) => void run(() => api('/api/settings', 'PUT', { target: event.target.value }))}
@@ -219,6 +220,7 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
           {t('with')}
           <select
             className={cx(fieldClass, 'max-w-[230px] border-edge bg-chip text-sm')}
+            name="provider"
             value={settings.provider}
             disabled={state.translating}
             onChange={(event) => void run(() => api('/api/settings', 'PUT', { provider: event.target.value }))}

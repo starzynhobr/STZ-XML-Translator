@@ -143,6 +143,13 @@ def _apply_dark_palette(app) -> None:
 
 
 def main() -> int:
+    # The installed desktop shell uses the same standalone bundle headlessly.
+    if "--engine" in sys.argv:
+        from engine.__main__ import main as engine_main
+
+        sys.argv.remove("--engine")
+        return engine_main()
+
     from PySide6.QtCore import QTimer
     from PySide6.QtGui import QIcon
     from PySide6.QtQml import QQmlApplicationEngine

@@ -10,8 +10,11 @@
   #error APP_SEMVER must be provided by build_nuitka.bat
 #endif
 #define AppPublisher "STZ Labs"
-#define AppExeName "STZXMLTranslator.exe"
+#define AppExeName "stz-xml-translator.exe"
 #define SourceDir  "dist\main_qt.dist"
+#if !FileExists(SourceDir + "\\stz-xml-translator.exe")
+  #error Build the Tauri desktop shell before creating the installer
+#endif
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -54,6 +57,8 @@ MinVersion=10.0
 CreateUninstallRegKey=yes
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName} {#AppVersion}
+; Close the desktop shell when updating its engine and bundled libraries.
+CloseApplications=yes
 
 [Languages]
 Name: "english";    MessagesFile: "compiler:Default.isl"

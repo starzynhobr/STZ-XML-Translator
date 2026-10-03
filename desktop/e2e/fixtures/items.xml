@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- game data -->
+<items>
+	<item id="1" rarity="rare">
+		<name>Ember Blade</name>
+		<description>A short sword.</description>
+		<icon>a/blade.png</icon>
+	</item>
+	<item id="2" rarity="epic">
+		<name>Frost Shield</name>
+		<description><![CDATA[Blocks <b>fire</b>.]]></description>
+		<icon>a/shield.png</icon>
+	</item>
+	<item id="3" rarity="common">
+		<name>Iron Hatchet</name>
+		<description>A reliable tool.</description>
+		<icon>a/hatchet.png</icon>
+	</item>
+	<item id="4" rarity="common">
+		<name>Old Map</name>
+		<description>The ink is still readable.</description>
+		<icon>a/map.png</icon>
+	</item>
+</items>

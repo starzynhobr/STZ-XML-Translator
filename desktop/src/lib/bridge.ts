@@ -32,6 +32,8 @@ export interface Settings {
   target: string
   targets: Record<string, string>
   ollamaModel: string
+  ollamaThinking: boolean
+  azureRegion: string
   context: string
   models: { label: string; paid: boolean }[]
   model: string
@@ -109,6 +111,19 @@ interface BridgeInfo {
   token: string
 }
 
+export interface EngineStatus {
+  phase: 'starting' | 'ready' | 'restarting' | 'failed' | 'stopped'
+  reason: string
+  attempts: number
+  generation: number
+  logPath: string
+}
+
+export async function retryEngine(): Promise<void> {
+  if (isTauri()) await invoke('retry_engine')
+  bridge = null
+}
+
 /** A refusal from the engine; `code` matches the `errors.*` messages. */
 export class EngineError extends Error {
   code: string
@@ -137,6 +152,8 @@ export async function api<T = { ok: true }>(path: string, method = 'GET', body?:
       method,
       headers: { Authorization: `Bearer ${bridge.token}`, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
+      // A stalled snapshot must not stop polling and recovery indefinitely.
+      signal: path === '/api/state' ? AbortSignal.timeout(8000) : undefined,
     })
   } catch {
     // The engine may have restarted on another port: look it up again next time.
@@ -160,19 +177,34 @@ export function useEngine() {
   const [state, setState] = useState<EngineState | null>(null)
   const [entries, setEntries] = useState<Entry[]>([])
   const [online, setOnline] = useState(true)
+  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null)
   const entriesRev = useRef(0)
   const stateRev = useRef(0)
   const busy = useRef(false)
   const running = useRef(false)
+  const generation = useRef(0)
 
   const refresh = useCallback(async () => {
     if (running.current) return
     running.current = true
     try {
+      if (isTauri()) {
+        const status = await invoke<EngineStatus>('engine_status')
+        setEngineStatus(status)
+        if (status.generation !== generation.current) {
+          generation.current = status.generation
+          bridge = null
+          stateRev.current = 0
+          entriesRev.current = 0
+          setState(null)
+          setEntries([])
+        }
+        if (status.phase !== 'ready') throw new EngineError('offline')
+      }
       const next = await api<EngineState>('/api/state')
       setOnline(true)
       busy.current = next.translating || next.xmlBusy || next.translatingEntries.length > 0
-      if (next.rev !== stateRev.current) {
+      if (stateRev.current === 0 || next.rev !== stateRev.current) {
         stateRev.current = next.rev
         setState(next)
       }
@@ -212,5 +244,5 @@ export function useEngine() {
     }
   }, [refresh])
 
-  return { state, entries, online, refresh }
+  return { state, entries, online, engineStatus, refresh }
 }

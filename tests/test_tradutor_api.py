@@ -15,7 +15,6 @@ from core.tradutor_api import (
     carregar_glossario,
     protect_glossary_for_xml,
     provider_supports_context,
-    traduzir_arquivo_json,
     translate_batch_ollama,
     translate_text,
 )
@@ -327,30 +326,3 @@ class TestTranslateText:
                 translate_text("Gemini", "Hello", {})
 
 
-class TestTraduzirArquivoJson:
-    def test_translates_and_writes_output(self, tmp_path):
-        input_data = {"/root/item[1]/dispName[1]": "Hello World"}
-        input_file = tmp_path / "input.json"
-        input_file.write_text(json.dumps(input_data), encoding="utf-8")
-        output_file = tmp_path / "output.json"
-
-        mock_service = MagicMock()
-        mock_service.translate.return_value = "Olá Mundo"
-
-        with patch.dict("core.tradutor_api.AVAILABLE_SERVICES", {"Gemini": mock_service}):
-            result = traduzir_arquivo_json(
-                str(input_file), str(output_file), api_key="fake", servico="Gemini"
-            )
-
-        assert result is True
-        assert output_file.exists()
-        output_data = json.loads(output_file.read_text(encoding="utf-8"))
-        assert output_data["/root/item[1]/dispName[1]"] == "Olá Mundo"
-
-    def test_returns_false_on_missing_input_file(self, tmp_path):
-        result = traduzir_arquivo_json(
-            str(tmp_path / "nonexistent.json"),
-            str(tmp_path / "output.json"),
-            api_key="fake",
-        )
-        assert result is False

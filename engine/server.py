@@ -92,7 +92,7 @@ def create_app(session: Session, token: str) -> FastAPI:
     ok = {"ok": True}
 
     @app.get("/api/health")
-    def health() -> dict:
+    async def health() -> dict:
         return {"app": "stz-xml-translator"}
 
     @app.get("/api/state", dependencies=auth)

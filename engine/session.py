@@ -537,6 +537,8 @@ class Session:
             "target": self.ctrl.translation_target.get("locale", ""),
             "targets": self.ctrl.available_translation_targets(),
             "ollamaModel": self.ctrl.ollama_model,
+            "ollamaThinking": bool(self.ctrl.ollama_thinking),
+            "azureRegion": self.ctrl.azure_region,
             "context": self.ctrl.translation_context,
             "models": [
                 {"label": label, "paid": paid} for label, (_id, _timeout, paid) in self._models.items()
@@ -563,6 +565,12 @@ class Session:
             model = str(changes["ollamaModel"]).strip()
             if model:
                 self._save_config(ollama_model=model)
+        if isinstance(changes.get("ollamaThinking"), bool):
+            self.ctrl.ollama_thinking = changes["ollamaThinking"]
+            self._save_config()
+        if "azureRegion" in changes:
+            self.ctrl.azure_region = str(changes["azureRegion"]).strip()[:64]
+            self._save_config()
         if "context" in changes:
             self.ctrl.translation_context = str(changes["context"])[:2000]
             self._save_config()

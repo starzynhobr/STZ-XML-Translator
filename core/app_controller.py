@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable, Sequence
 from threading import RLock
 
+from core import key_protection as secrets
 from core.atomic import write_json_atomic
 from core.extrator import ExtractedEntry, XmlDocumentIndex, indexar_xml
 from core.project import TranslationProject
@@ -83,6 +84,34 @@ def _preset_key(preset: dict) -> tuple[str, str, tuple[str, ...], tuple[str, ...
         tuple(normalized["target_tags"]),
         tuple(normalized["context_tags"]),
     )
+
+
+def _load_api_keys(data: dict) -> dict[str, str]:
+    """Read keys from a config dict: encrypted entries win over legacy plain ones."""
+    keys: dict[str, str] = {}
+    plain = data.get("api_keys")
+    if isinstance(plain, dict):
+        keys.update({str(k): str(v) for k, v in plain.items() if v})
+    protected = data.get("api_keys_protected")
+    if isinstance(protected, dict) and secrets.available():
+        for provider, token in protected.items():
+            try:
+                keys[str(provider)] = secrets.unprotect(str(token))
+            except (OSError, ValueError):
+                # Written by another Windows user or machine: unreadable here.
+                continue
+    return keys
+
+
+def _stored_api_keys(keys: dict[str, str]) -> dict[str, dict[str, str]]:
+    """The config entry for the keys: encrypted when possible, plain otherwise."""
+    present = {k: v for k, v in keys.items() if v}
+    if secrets.available():
+        try:
+            return {"api_keys_protected": {k: secrets.protect(v) for k, v in present.items()}}
+        except OSError:
+            pass
+    return {"api_keys": present}
 
 
 def resource_path(relative_path: str) -> str:
@@ -179,6 +208,8 @@ class AppController:
         self.preferred_translation_target: str = ""
         self.ollama_model: str = "llama3"
         self.ollama_thinking: bool = False
+        # Azure resources created in a region (not "Global") reject requests without it.
+        self.azure_region: str = ""
         self.translation_context: str = ""
         self._api_keys: dict[str, str] = {}
         self.translation_target: dict[str, str] = TRANSLATION_TARGETS["pt"].copy()
@@ -212,9 +243,11 @@ class AppController:
             self.preferred_model_label = data.get("preferred_model", "")
             self.ollama_model = data.get("ollama_model", "llama3")
             self.ollama_thinking = data.get("ollama_thinking", False)
+            self.azure_region = str(data.get("azure_region", ""))
             self.translation_context = data.get("translation_context", "")
-            # Per-provider keys (new format)
-            self._api_keys = data.get("api_keys", {})
+            # Per-provider keys: encrypted at rest; plain "api_keys" is the old
+            # format and is replaced by the encrypted one on the next save.
+            self._api_keys = _load_api_keys(data)
             # Backward compat: old config stored a single api_key for Gemini
             if not self._api_keys.get("Gemini") and data.get("api_key"):
                 self._api_keys["Gemini"] = data["api_key"]
@@ -257,8 +290,9 @@ class AppController:
             "preferred_model_id": model_id,
             "ollama_model": self.ollama_model,
             "ollama_thinking": self.ollama_thinking,
+            "azure_region": self.azure_region,
             "translation_context": self.translation_context,
-            "api_keys": {k: v for k, v in self._api_keys.items() if v},
+            **_stored_api_keys(self._api_keys),
             "game_folder": self.game_folder,
             "theme": self.preferred_theme,
             "ui_mode": self.preferred_ui_mode,
@@ -570,6 +604,7 @@ class AppController:
             "source_label": self.source_language_label,
             "translation_context": self.translation_context,
             "ollama_thinking": self.ollama_thinking,
+            "azure_region": self.azure_region,
             "checkpoint_dir": user_data_path("checkpoints"),
             "checkpoint_fallbacks": (
                 self.checkpoint_fallbacks_for(self.project.xml_path)

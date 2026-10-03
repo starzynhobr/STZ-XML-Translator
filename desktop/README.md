@@ -23,6 +23,22 @@ npm run tauri dev
 
 The debug shell runs the engine from `.venv` (override with `STZ_PYTHON`).
 
+## Installed app and recovery
+
+`build_nuitka.bat` builds both the standalone Python bundle and the Tauri shell,
+then packages them with Inno Setup. The installed shortcut opens
+`stz-xml-translator.exe`; its engine is `STZXMLTranslator.exe --engine` in the
+same directory. Python and the repository are not needed on the target machine.
+The Qt UI remains available by launching `STZXMLTranslator.exe` directly.
+
+The shell monitors process exits and `/api/health`. It allows 30 seconds for
+startup and three automatic restarts, then shows a diagnostic path and a manual
+retry button. A minute of healthy operation resets the restart budget.
+Logs and token-free status records are under
+`%LOCALAPPDATA%\STZ XML Translator\logs`. Each shell has its own runtime record.
+After a restart, reopen the XML and select its fields to restore its checkpoint;
+translation is not resumed automatically.
+
 ### UI in a plain browser
 
 ```powershell
@@ -39,9 +55,15 @@ typed path instead.
 ## Test
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests\test_engine.py   # engine and bridge
-npm run build                                              # type-check and bundle
+.venv\Scripts\python.exe -m pytest      # core, bridge, and the engine process end to end
+npm run build                           # type-check and bundle
+npm run test:e2e                        # the whole flow in Edge, against the real engine
 ```
+
+The end-to-end tests start their own engine with an isolated data directory and
+a fake Ollama, on their own ports, so they can run while `tauri dev` is open.
+Edge is used because it is the engine behind the WebView2 the shell embeds; no
+browser download is needed.
 
 ## Not done yet
 

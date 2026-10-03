@@ -85,6 +85,25 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build desktop shell
+        working-directory: desktop
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+          npm run tauri build -- --no-bundle
+          if ($LASTEXITCODE -ne 0) { throw "Desktop build failed" }
+          Copy-Item "src-tauri\target\release\stz-xml-translator.exe" "..\dist\main_qt.dist\stz-xml-translator.exe"
+
       - name: Build Inno Setup installer
         run: |
           $isccCandidates = @(

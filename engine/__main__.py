@@ -23,6 +23,8 @@ HOST = "127.0.0.1"
 
 def runtime_path() -> Path:
     """Always under LocalAppData, even in development: the shell looks here."""
+    if path := os.environ.get("STZ_XML_RUNTIME_FILE"):
+        return Path(path)
     base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
     return Path(base) / APP_DATA_DIR_NAME / "runtime.json"
 
@@ -54,15 +56,25 @@ def _exit_with_parent(pid: int) -> None:
     if sys.platform != "win32" or pid <= 0:
         return
     import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
 
     synchronize = 0x00100000
-    handle = ctypes.windll.kernel32.OpenProcess(synchronize, False, pid)
+    handle = kernel.OpenProcess(synchronize, False, pid)
     if not handle:
         return
 
     def wait() -> None:
-        ctypes.windll.kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)
-        os._exit(0)
+        result = kernel.WaitForSingleObject(handle, 0xFFFFFFFF)
+        kernel.CloseHandle(handle)
+        if result == 0:
+            os._exit(0)
 
     threading.Thread(target=wait, daemon=True).start()
 

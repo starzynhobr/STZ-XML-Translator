@@ -237,3 +237,77 @@ def test_gemini_model_is_resolved_once_per_key(monkeypatch):
     for _ in range(3):
         tradutor_api.get_gemini_model("models/gemini-flash-latest", api_key="k")
     assert request.call_count == 1
+
+
+# --- Keys at rest, Azure region, Ollama options -----------------------------
+
+
+def test_api_keys_are_not_stored_in_plain_text(tmp_path, monkeypatch):
+    from core import key_protection
+    from core.app_controller import AppController
+
+    if not key_protection.available():
+        pytest.skip("DPAPI is Windows-only")
+    monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(tmp_path))
+    ctrl = AppController()
+    ctrl.set_api_key("DeepL", "secret-key-123")
+    ctrl.save_config(api_key="", model_label="", model_id="")
+
+    raw = (tmp_path / "config.json").read_text(encoding="utf-8")
+    assert "secret-key-123" not in raw and '"api_keys"' not in raw
+    assert AppController().get_api_key("DeepL") == "secret-key-123"
+
+
+def test_plain_text_keys_from_an_older_config_are_read_and_then_protected(tmp_path, monkeypatch):
+    from core import key_protection
+    from core.app_controller import AppController
+
+    if not key_protection.available():
+        pytest.skip("DPAPI is Windows-only")
+    monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(tmp_path))
+    (tmp_path / "config.json").write_text(
+        json.dumps({"provider": "DeepL", "api_keys": {"DeepL": "old-plain-key"}}), encoding="utf-8"
+    )
+    ctrl = AppController()
+    assert ctrl.api_key == "old-plain-key"
+    ctrl.save_preferred_theme("Cool Tint")
+    assert "old-plain-key" not in (tmp_path / "config.json").read_text(encoding="utf-8")
+    assert AppController().get_api_key("DeepL") == "old-plain-key"
+
+
+def test_a_key_protected_elsewhere_is_ignored_instead_of_breaking_the_config(tmp_path, monkeypatch):
+    from core.app_controller import AppController
+
+    monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(tmp_path))
+    (tmp_path / "config.json").write_text(
+        json.dumps({"provider": "DeepL", "theme": "Cool Tint", "api_keys_protected": {"DeepL": "bm90IGEgYmxvYg=="}}),
+        encoding="utf-8",
+    )
+    ctrl = AppController()
+    assert (ctrl.get_api_key("DeepL"), ctrl.preferred_theme) == ("", "Cool Tint")
+
+
+@pytest.mark.parametrize("region, expected", [("brazilsouth", "brazilsouth"), ("", None)])
+def test_azure_sends_the_region_only_when_configured(data_dir, region, expected):
+    client = MagicMock()
+    client.translate.return_value = [MagicMock(translations=[MagicMock(text="Ol\u00e1")])]
+    with patch("core.tradutor_api.TextTranslationClient", return_value=client) as factory:
+        AzureService().translate("Hello", {"api_key": "k", "target_lang": "pt", "azure_region": region})
+    assert factory.call_args.kwargs.get("region") == expected
+
+
+def test_ollama_honours_ollama_host(data_dir, monkeypatch):
+    monkeypatch.setenv("OLLAMA_HOST", "192.168.0.5:11434")
+    with patch("core.tradutor_api.requests.post", return_value=ollama_reply({"text": "Ol\u00e1"})) as post:
+        OllamaService().translate("Hello", {"target_lang": "pt"})
+    assert post.call_args.args[0] == "http://192.168.0.5:11434/api/generate"
+
+
+def test_ollama_thinking_mode_is_requested_and_its_reasoning_is_stripped(data_dir):
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"response": '<think>hmm, a greeting</think>\nHere it is: {"text": "Ol\u00e1"}'}
+    with patch("core.tradutor_api.requests.post", return_value=response) as post:
+        result = OllamaService().translate("Hello", {"target_lang": "pt", "ollama_thinking": True})
+    sent = post.call_args.kwargs["json"]
+    assert sent["think"] is True and "format" not in sent
+    assert result == "Ol\u00e1"

@@ -411,6 +411,33 @@ def _ollama_post(url: str, data: dict, thinking: bool, timeout: int) -> dict:
     return r.json()
 
 
+def _ollama_url() -> str:
+    """The generate endpoint, honouring Ollama's own OLLAMA_HOST variable."""
+    host = (os.environ.get("OLLAMA_HOST") or "http://localhost:11434").strip().rstrip("/")
+    if "://" not in host:
+        host = f"http://{host}"
+    return f"{host}/api/generate"
+
+
+def _ollama_json(payload: dict) -> dict:
+    """Parse the JSON object a model answered with.
+
+    Thinking mode cannot use Ollama's JSON format, so the answer may carry a
+    <think> block or prose around the object.
+    """
+    text = _strip_think(str(payload.get("response", "")))
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            raise
+        result = json.loads(match.group(0))
+    if not isinstance(result, dict) or not result:
+        raise ValueError("Empty translation response")
+    return result
+
+
 def provider_supports_context(service: str) -> bool:
     """Return whether a provider has a safe, separate way to receive context."""
     return service in CONTEXT_CAPABLE_SERVICES
@@ -517,7 +544,12 @@ class AzureService(TranslationService):
     def translate(self, text, config):
         credential = AzureKeyCredential(config.get("api_key"))
         endpoint = "https://api.cognitive.microsofttranslator.com"
-        text_translator = TextTranslationClient(endpoint=endpoint, credential=credential)
+        client_options = {"endpoint": endpoint, "credential": credential}
+        # A resource created in a region answers 401 unless the region is sent.
+        region = (config.get("azure_region") or "").strip()
+        if region:
+            client_options["region"] = region
+        text_translator = TextTranslationClient(**client_options)
         target_code = config.get("target_lang", "pt")
         protected, glossary_tokens = protect_glossary_for_mt(text, target_code)
         response = text_translator.translate(content=[protected], to_language=[target_code])
@@ -526,7 +558,8 @@ class AzureService(TranslationService):
 
 class OllamaService(TranslationService):
     def translate(self, text, config):
-        url = "http://localhost:11434/api/generate"
+        url = _ollama_url()
+        thinking = bool(config.get("ollama_thinking"))
         target_label = config.get("target_label", "Portuguese (Brazil)")
         context_block = build_reference_context(config)
         protected, glossary_tokens = protect_glossary_for_ai(text, config.get("target_lang", "pt"))
@@ -552,9 +585,8 @@ class OllamaService(TranslationService):
             "format": "json",
         }
 
-        response = requests.post(url, json=data, timeout=config.get("timeout", 120))
-        response.raise_for_status()
-        translated_dict = json.loads(response.json()["response"])
+        payload = _ollama_post(url, data, thinking, config.get("timeout", 120))
+        translated_dict = _ollama_json(payload)
         return restore_glossary_tokens(str(next(iter(translated_dict.values()))), glossary_tokens)
 
 
@@ -598,13 +630,10 @@ def translate_batch_ollama(entries, config: dict) -> "dict[str, str] | None":
     }
 
     try:
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json=data,
-            timeout=config.get("timeout", 300),
+        payload = _ollama_post(
+            _ollama_url(), data, bool(config.get("ollama_thinking")), config.get("timeout", 300)
         )
-        response.raise_for_status()
-        result = json.loads(response.json()["response"])
+        result = _ollama_json(payload)
         translations = result.get("translations") or result.get("Translations")
         if not isinstance(translations, list) or len(translations) != len(entries):
             return None
@@ -712,40 +741,11 @@ def translate_text(servico_escolhido, texto, config):
     return service.translate(texto, config)
 
 
-def traduzir_arquivo_json(
-    caminho_json_entrada: str,
-    caminho_json_saida: str,
-    api_key: str,
-    servico: str = "Gemini",
-    target_lang: str = "pt",
-    target_label: str = "Portuguese (Brazil)",
-    source_label: str = "English",
-) -> bool:
-    """Translates all values in a JSON {xpath: text} file and writes the result."""
-    try:
-        with open(caminho_json_entrada, encoding="utf-8") as f:
-            dados = json.load(f)
-        config = {
-            "api_key": api_key,
-            "target_lang": target_lang,
-            "target_label": target_label,
-            "source_label": source_label,
-        }
-        resultado = {xpath: translate_text(servico, texto, config) for xpath, texto in dados.items()}
-        with open(caminho_json_saida, "w", encoding="utf-8") as f:
-            json.dump(resultado, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception as exc:
-        print(f"ERRO em traduzir_arquivo_json: {exc}")
-        return False
-
-
 __all__ = [
     "AVAILABLE_SERVICES",
     "translate_text",
     "translate_batch_ollama",
     "translate_batch_google_free",
-    "traduzir_arquivo_json",
     "get_gemini_model",
     "list_gemini_models",
     "provider_supports_context",

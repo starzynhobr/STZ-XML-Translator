@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Toaster } from 'sonner'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast, Toaster } from 'sonner'
 import UpdateDialog from '@/components/UpdateDialog'
-import { LogoMark } from '@/components/ui'
-import { api, useEngine, type Term, type Theme } from '@/lib/bridge'
+import { Button, LogoMark } from '@/components/ui'
+import { api, retryEngine, useEngine, type EngineStatus, type Term, type Theme } from '@/lib/bridge'
 import { I18nProvider, useT } from '@/lib/i18n'
 import { HTML_LANG } from '@/lib/messages'
 import Bench from '@/screens/Bench'
@@ -38,18 +38,36 @@ function useAppearance(theme: Theme | undefined, accent: string | undefined, loc
   return resolved
 }
 
-function Waiting({ offline }: { offline: boolean }) {
+function Waiting({ offline, status, onRetry }: { offline: boolean; status: EngineStatus | null; onRetry: () => void }) {
   const t = useT()
+  const failed = status?.phase === 'failed'
   return (
-    <div role="status" className="flex h-full flex-col items-center justify-center gap-4 text-dim">
+    <div role={failed ? 'alert' : 'status'} className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center text-dim">
       <LogoMark className="size-9" />
-      <p className="m-0">{t(offline ? 'offline' : 'connecting')}</p>
+      <p className="m-0">{t(failed ? 'engineFailed' : offline ? 'offline' : 'connecting')}</p>
+      {failed && <>
+        <p className="m-0 max-w-lg">{t(status.reason === 'missing' ? 'engineMissing' : status.reason === 'timeout' ? 'engineTimeout' : 'engineFailureHint')}</p>
+        <Button variant="primary" onClick={onRetry}>{t('retryEngine')}</Button>
+        <p className="m-0 max-w-2xl break-all text-xs">{t('engineLog')}: {status.logPath}</p>
+      </>}
     </div>
   )
 }
 
+function RecoveryNotice({ status }: { status: EngineStatus | null }) {
+  const t = useT()
+  const announced = useRef(0)
+  useEffect(() => {
+    if (status?.phase === 'ready' && status.generation > 1 && status.generation !== announced.current) {
+      announced.current = status.generation
+      toast.info(t('engineRecovered'), { duration: 10_000 })
+    }
+  }, [status, t])
+  return null
+}
+
 export default function App() {
-  const { state, entries, online, refresh } = useEngine()
+  const { state, entries, online, engineStatus, refresh } = useEngine()
   const [screen, setScreen] = useState<Screen>('main')
   const [terms, setTerms] = useState<Term[]>([])
   const [updateOpen, setUpdateOpen] = useState(false)
@@ -83,8 +101,8 @@ export default function App() {
   const openUpdate = () => setUpdateOpen(true)
 
   let content
-  if (!state) {
-    content = <Waiting offline={!online} />
+  if (!state || !online) {
+    content = <Waiting offline={!online} status={engineStatus} onRetry={() => { void retryEngine().then(refresh) }} />
   } else if (screen === 'settings') {
     content = <Settings state={state} refresh={refresh} onBack={() => setScreen('main')} onOpenUpdate={openUpdate} />
   } else if (screen === 'glossary') {
@@ -127,6 +145,7 @@ export default function App() {
 
   return (
     <I18nProvider locale={settings?.locale ?? 'pt_BR'}>
+      <RecoveryNotice status={engineStatus} />
       <div className="h-full overflow-y-auto">{content}</div>
       {state && updateOpen && state.update.available && (
         <UpdateDialog update={state.update} refresh={refresh} onClose={() => setUpdateOpen(false)} />
