@@ -264,6 +264,6 @@ ApplicationWindow {
         context: Qt.WindowShortcut
         enabled: vm.entryCount > 0 && !vm.isTranslating
             && !vm.isSingleTranslating && !vm.isXmlBusy
-        onActivated: vm.saveInPlace()
+        onActivated: structureRegion.confirmSaveInPlace()
     }
 }

@@ -24,21 +24,41 @@ class TranslationService:
         raise NotImplementedError
 
 
+def normalize_target_lang(target_lang) -> str:
+    """'pt_BR', 'PT-BR' and 'pt' all name the same glossary: 'pt'."""
+    return re.split(r"[_-]", str(target_lang or "pt"))[0].lower() or "pt"
+
+
+def glossary_filename(target_lang=None) -> str:
+    """A glossary maps source terms to one target language, so each target has its own file.
+
+    Portuguese keeps the original ``glossario.json`` name so existing glossaries stay in use.
+    """
+    code = normalize_target_lang(target_lang)
+    return "glossario.json" if code == "pt" else f"glossario_{code}.json"
+
+
 def carregar_glossario(target_lang=None):
-    """Load glossary entries; tries language specific file first."""
+    """Load the glossary for one target language (Portuguese when not given)."""
+    code = normalize_target_lang(target_lang)
     user_dir = _user_data_dir()
     legacy_dir = os.path.dirname(__file__)
-    candidate_files = []
-    if target_lang:
-        candidate_files.append(os.path.join(user_dir, f"glossario_{target_lang}.json"))
-        candidate_files.append(os.path.join(legacy_dir, f"glossario_{target_lang}.json"))
-    candidate_files.append(os.path.join(user_dir, "glossario.json"))
-    candidate_files.append(os.path.join(legacy_dir, "glossario.json"))
+    names = [f"glossario_{code}.json"]
+    if code == "pt":
+        # The generic file predates per-language glossaries and is Portuguese.
+        names.append("glossario.json")
+    candidate_files = [os.path.join(folder, name) for name in names for folder in (user_dir, legacy_dir)]
 
     for path in candidate_files:
         if os.path.exists(path):
-            with open(path, encoding="utf-8") as stream:
-                return json.load(stream)
+            try:
+                with open(path, encoding="utf-8") as stream:
+                    data = json.load(stream)
+            except (OSError, json.JSONDecodeError):
+                return {}
+            if not isinstance(data, dict):
+                return {}
+            return {str(k): str(v) for k, v in data.items() if str(k).strip()}
     return {}
 
 
@@ -57,7 +77,9 @@ def _user_data_dir() -> str:
         return os.path.abspath(override)
 
     if not _is_packaged_app():
-        return os.path.dirname(__file__)
+        # Same rule as app_controller.user_data_dir(), which is where the
+        # glossary is saved; core/ is still read as the bundled fallback.
+        return os.getcwd()
 
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
@@ -158,13 +180,23 @@ def _gemini_request(method: str, url: str, api_key: str, **kwargs) -> dict:
     return response.json()
 
 
+# Model names that already resolved, per (requested name, key): resolving costs
+# one request per candidate, and it used to run again for every translation.
+_RESOLVED_GEMINI_MODELS: dict[tuple[str, str], str] = {}
+
+
 def get_gemini_model(model_name: str, api_key: str = "") -> _GeminiWrapper:
     """Returns a _GeminiWrapper for the first resolvable candidate model name."""
+    cache_key = (model_name, api_key)
+    resolved = _RESOLVED_GEMINI_MODELS.get(cache_key)
+    if resolved:
+        return _GeminiWrapper(resolved, api_key)
     last_error = None
     for candidate in _candidate_model_names(model_name):
         try:
             url = f"{GEMINI_API_BASE}/{_normalize_gemini_model_name(candidate)}"
             _gemini_request("GET", url, api_key, timeout=30)
+            _RESOLVED_GEMINI_MODELS[cache_key] = candidate
             return _GeminiWrapper(candidate, api_key)
         except Exception as exc:
             last_error = exc
@@ -242,76 +274,86 @@ def _is_paid_tier(base: str) -> bool:
     return False
 
 
-def _glossary_replace(text: str, term: str, replacement: str) -> str:
-    """Case-insensitive replace that mirrors the case pattern of the matched text."""
+def _mirror_case(matched: str, replacement: str) -> str:
+    """Give the replacement the case pattern of the text it replaces."""
+    if matched.isupper():
+        return replacement.upper()
+    if matched.islower():
+        return replacement.lower()
+    return replacement
+
+
+def _glossary_matcher(target_lang: str) -> tuple[re.Pattern | None, dict[str, str]]:
+    """One pattern for every term of the target language's glossary.
+
+    Terms match whole words only ("Strike" does not fire inside "Striker"),
+    longest first, and in a single pass over the text, so a replacement or a
+    placeholder token is never matched again by a later term.
+    """
+    glossary = {term: fixed for term, fixed in carregar_glossario(target_lang).items() if term.strip()}
+    if not glossary:
+        return None, {}
+    terms = sorted(glossary, key=len, reverse=True)
+    pattern = re.compile(
+        "|".join(rf"(?<!\w){re.escape(term)}(?!\w)" for term in terms),
+        re.IGNORECASE,
+    )
+    lookup: dict[str, str] = {}
+    for term in terms:
+        lookup.setdefault(term.casefold(), glossary[term])
+    return pattern, lookup
+
+
+def _tokenize_glossary(text: str, target_lang: str, token_format: str) -> tuple[str, dict[str, str]]:
+    """Swap glossary terms for opaque tokens; returns the text and {token: fixed translation}."""
+    pattern, lookup = _glossary_matcher(target_lang)
+    if pattern is None:
+        return text, {}
+    replacements: dict[str, str] = {}
+    counter = 0
+
     def repl(match: re.Match) -> str:
-        matched = match.group(0)
-        if matched.isupper():
-            return replacement.upper()
-        if matched.islower():
-            return replacement.lower()
-        return replacement
-    return re.sub(re.escape(term), repl, text, flags=re.IGNORECASE)
+        nonlocal counter
+        token = token_format.format(counter)
+        while token in text:
+            counter += 1
+            token = token_format.format(counter)
+        counter += 1
+        replacements[token] = _mirror_case(match.group(0), lookup[match.group(0).casefold()])
+        return token
+
+    return pattern.sub(repl, text), replacements
 
 
 def apply_glossary(text: str, target_lang: str) -> tuple[str, bool]:
-    """Apply the configured glossary before an AI translation request.
-
-    The existing generic glossary is a Portuguese glossary. Language-specific
-    files make it possible to extend this safely later without applying
-    Portuguese replacements to another target language.
-    """
-    normalized_target = (target_lang or "pt").lower()
-    if normalized_target != "pt":
+    """Replace glossary terms in place with their fixed translation."""
+    pattern, lookup = _glossary_matcher(target_lang)
+    if pattern is None:
         return text, False
-
-    glossary = carregar_glossario(normalized_target)
-    glossary_pairs = sorted(glossary.items(), key=lambda item: len(item[0]), reverse=True)
-    prepared_text = text
-
-    for original_term, target_term in glossary_pairs:
-        prepared_text = _glossary_replace(prepared_text, original_term, target_term)
-
-    return prepared_text, prepared_text != text
+    prepared = pattern.sub(
+        lambda match: _mirror_case(match.group(0), lookup[match.group(0).casefold()]), text
+    )
+    return prepared, prepared != text
 
 
 def protect_glossary_for_ai(text: str, target_lang: str) -> tuple[str, dict[str, str]]:
     """Replace matching terms with opaque tokens while AI translates the rest."""
-    normalized_target = (target_lang or "pt").lower()
-    if normalized_target != "pt":
-        return text, {}
+    return _tokenize_glossary(text, target_lang, "STZGLOSSARYTOKEN{}END")
 
-    pairs = sorted(
-        carregar_glossario(normalized_target).items(),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    )
-    protected = text
-    replacements: dict[str, str] = {}
-    counter = 0
 
-    for original_term, target_term in pairs:
-        def repl(match: re.Match, replacement: str = target_term) -> str:
-            nonlocal counter
-            token = f"STZGLOSSARYTOKEN{counter}END"
-            counter += 1
-            matched = match.group(0)
-            if matched.isupper():
-                replacement = replacement.upper()
-            elif matched.islower():
-                replacement = replacement.lower()
-            replacements[token] = replacement
-            return token
-
-        protected = re.sub(re.escape(original_term), repl, protected, flags=re.IGNORECASE)
-
-    return protected, replacements
+def protect_glossary_for_mt(text: str, target_lang: str) -> tuple[str, dict[str, str]]:
+    """Same idea for machine translation engines, with a token they leave alone."""
+    return _tokenize_glossary(text, target_lang, "ZXG{}QXZ")
 
 
 def restore_glossary_tokens(text: str, replacements: dict[str, str]) -> str:
-    """Restore protected AI glossary tokens with their required translations."""
+    """Restore protected glossary tokens with their required translations."""
     for token, replacement in replacements.items():
-        text = text.replace(token, replacement)
+        if token in text:
+            text = text.replace(token, replacement)
+        else:
+            # Engines sometimes change the token's case; the fixed text is still owed.
+            text = re.sub(re.escape(token), lambda _m, r=replacement: r, text, flags=re.IGNORECASE)
     return text
 
 
@@ -329,34 +371,7 @@ def glossary_ai_instruction(replacements: dict[str, str]) -> str:
 
 def protect_glossary_for_xml(text: str, target_lang: str) -> tuple[str, bool]:
     """Wrap glossary replacements in XML tags that translation APIs can ignore."""
-    normalized_target = (target_lang or "pt").lower()
-    if normalized_target != "pt":
-        return text, False
-
-    glossary = carregar_glossario(normalized_target)
-    pairs = sorted(glossary.items(), key=lambda item: len(item[0]), reverse=True)
-    protected = text
-    replacements: dict[str, str] = {}
-    counter = 0
-
-    for original_term, target_term in pairs:
-        def repl(match: re.Match, replacement: str = target_term) -> str:
-            nonlocal counter
-            token = f"STZGLOSSARYTOKEN{counter}END"
-            while token in protected:
-                counter += 1
-                token = f"STZGLOSSARYTOKEN{counter}END"
-            counter += 1
-            matched = match.group(0)
-            if matched.isupper():
-                replacement = replacement.upper()
-            elif matched.islower():
-                replacement = replacement.lower()
-            replacements[token] = replacement
-            return token
-
-        protected = re.sub(re.escape(original_term), repl, protected, flags=re.IGNORECASE)
-
+    protected, replacements = _tokenize_glossary(text, target_lang, "STZGLOSSARYTOKEN{}END")
     if not replacements:
         return text, False
 
@@ -504,8 +519,9 @@ class AzureService(TranslationService):
         endpoint = "https://api.cognitive.microsofttranslator.com"
         text_translator = TextTranslationClient(endpoint=endpoint, credential=credential)
         target_code = config.get("target_lang", "pt")
-        response = text_translator.translate(content=[text], to_language=[target_code])
-        return response[0].translations[0].text
+        protected, glossary_tokens = protect_glossary_for_mt(text, target_code)
+        response = text_translator.translate(content=[protected], to_language=[target_code])
+        return restore_glossary_tokens(response[0].translations[0].text, glossary_tokens)
 
 
 class OllamaService(TranslationService):
@@ -513,17 +529,19 @@ class OllamaService(TranslationService):
         url = "http://localhost:11434/api/generate"
         target_label = config.get("target_label", "Portuguese (Brazil)")
         context_block = build_reference_context(config)
+        protected, glossary_tokens = protect_glossary_for_ai(text, config.get("target_lang", "pt"))
+        # json.dumps escapes quotes and line breaks, so the input stays valid JSON.
+        input_json = json.dumps({"text": protected}, ensure_ascii=False, indent=4)
 
         prompt = (
             "[INST]Act as a game localization specialist.\n"
             f"{context_block}"
+            f"{glossary_ai_instruction(glossary_tokens)}"
             f"Translate the JSON value below to {target_label}. Keep proper nouns and "
             "character names that should not be translated. Keep the key exactly the same. "
             "Respond with JSON only.\n\n"
             "Input:\n"
-            "{\n"
-            f'    "text": "{text}"\n'
-            "}\n\n"
+            f"{input_json}\n\n"
             "Output:[/INST]"
         )
 
@@ -537,7 +555,7 @@ class OllamaService(TranslationService):
         response = requests.post(url, json=data, timeout=config.get("timeout", 120))
         response.raise_for_status()
         translated_dict = json.loads(response.json()["response"])
-        return next(iter(translated_dict.values()))
+        return restore_glossary_tokens(str(next(iter(translated_dict.values()))), glossary_tokens)
 
 
 def translate_batch_ollama(entries, config: dict) -> "dict[str, str] | None":
@@ -548,20 +566,22 @@ def translate_batch_ollama(entries, config: dict) -> "dict[str, str] | None":
     """
     target_label = config.get("target_label", "Portuguese (Brazil)")
     context_block = build_reference_context(config)
+    target_lang = config.get("target_lang", "pt")
 
-    inputs = [
-        {
-            "text": entry.original,
-            "field": entry.source_tag,
-            "context": entry.context,
-        }
-        for entry in entries
-    ]
+    inputs = []
+    tokens_by_entry: list[dict[str, str]] = []
+    all_tokens: dict[str, str] = {}
+    for entry in entries:
+        protected, tokens = protect_glossary_for_ai(entry.original, target_lang)
+        tokens_by_entry.append(tokens)
+        all_tokens.update(tokens)
+        inputs.append({"text": protected, "field": entry.source_tag, "context": entry.context})
     input_json = json.dumps({"inputs": inputs}, ensure_ascii=False)
 
     prompt = (
         "[INST]Act as a game localization specialist.\n"
         f"{context_block}"
+        f"{glossary_ai_instruction(all_tokens)}"
         f"Translate every string in the \"inputs\" array to {target_label}. "
         "For each object, translate only its \"text\" value; \"field\" and \"context\" "
         "are reference data and must not appear in the translation. "
@@ -588,7 +608,10 @@ def translate_batch_ollama(entries, config: dict) -> "dict[str, str] | None":
         translations = result.get("translations") or result.get("Translations")
         if not isinstance(translations, list) or len(translations) != len(entries):
             return None
-        return {e.xpath: str(t).strip() for e, t in zip(entries, translations)}
+        return {
+            entry.xpath: restore_glossary_tokens(str(text).strip(), tokens)
+            for entry, text, tokens in zip(entries, translations, tokens_by_entry)
+        }
     except Exception:
         return None
 
@@ -602,16 +625,19 @@ _GT_LANG_MAP = {"pt": "pt-BR", "en": "en", "es": "es", "fr": "fr", "ja": "ja"}
 class GoogleTranslateFreeService(TranslationService):
     def translate(self, text, config):
         tl = _GT_LANG_MAP.get(config.get("target_lang", "pt"), config.get("target_lang", "pt-BR"))
+        text, glossary_tokens = protect_glossary_for_mt(text, config.get("target_lang", "pt"))
         segments = text.split("\n")
         translated = []
         for seg in segments:
-            if not re.search(r"[A-Za-z]", seg):
+            # Any letter counts, in any script: a line of Russian or Japanese is
+            # text to translate too. Only lines without letters are passed through.
+            if not re.search(r"[^\W\d_]", seg):
                 translated.append(seg)
                 continue
             protected, replacements = self._protect(seg)
             result = self._call_api(protected, tl)
             translated.append(self._unprotect(result, replacements))
-        return "\n".join(translated)
+        return restore_glossary_tokens("\n".join(translated), glossary_tokens)
 
     def _protect(self, text):
         replacements = {}
@@ -678,16 +704,12 @@ AVAILABLE_SERVICES = {
 
 
 def translate_text(servico_escolhido, texto, config):
-    if servico_escolhido in AVAILABLE_SERVICES:
-        try:
-            service = AVAILABLE_SERVICES[servico_escolhido]
-            return service.translate(texto, config)
-        except Exception as exc:
-            error_message = str(exc)
-            if "Connection refused" in error_message:
-                return "ERRO: Nao foi possivel conectar ao servidor local do Ollama. Verifique se ele esta rodando."
-            return f"ERRO na API ({servico_escolhido}): {exc}"
-    return f"Servico '{servico_escolhido}' nao reconhecido."
+    """Translate one text. Failures raise: an error message must never be
+    returned as if it were the translation, or it ends up in the exported XML."""
+    service = AVAILABLE_SERVICES.get(servico_escolhido)
+    if service is None:
+        raise ValueError(f"Unknown translation service: {servico_escolhido}")
+    return service.translate(texto, config)
 
 
 def traduzir_arquivo_json(

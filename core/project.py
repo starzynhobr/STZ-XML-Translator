@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from core.atomic import write_json_atomic
 from core.extrator import ExtractedEntry, extrair_entradas
 from core.injetor import injetar_traducoes
 from core.translation_errors import ERROR_MESSAGES, normalize_error
@@ -316,8 +317,9 @@ class TranslationProject:
                     for xpath, e in self.entries.items()
                 },
             }
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            # Atomic: a crash mid-save must not corrupt the only copy of the progress.
+            write_json_atomic(path, data, indent=4)
             return True
         except OSError:
             return False
@@ -422,12 +424,15 @@ class TranslationProject:
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
+            return 0
+        # A backup is a {xpath: text} object; anything else is not one of ours.
+        if not isinstance(data, dict):
             return 0
 
         count = 0
         for xpath, translation in data.items():
-            if xpath in self.entries:
+            if xpath in self.entries and isinstance(translation, str):
                 self.entries[xpath].set_translation(translation)
                 count += 1
         return count
@@ -447,5 +452,6 @@ class TranslationProject:
                         self.entries[xpath].set_translation(translation)
                         count += 1
             return count
-        except OSError:
+        except (OSError, ValueError, csv.Error):
+            # ValueError covers a file in another encoding (UnicodeDecodeError).
             return 0

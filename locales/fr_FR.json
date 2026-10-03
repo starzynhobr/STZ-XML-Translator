@@ -58,6 +58,8 @@
   "log_mass_trans_cancel_req": "Annulation demandée...",
   "log_mass_trans_cancelled": "Traduction de masse annulée par l'utilisateur.",
   "log_mass_trans_done": "Traduction de masse terminée !",
+  "log_translation_already_complete": "Tous les éléments sont déjà traduits dans le checkpoint.",
+  "log_batch_fail": "Échec du lot — arrêt de la traduction.",
   "export_cancelled": "Exportation annulée par l'utilisateur.",
   "export_success": "Fichier XML traduit enregistré avec succès.",
   "export_fail": "Une erreur s'est produite lors de l'enregistrement du fichier XML.",

@@ -41,6 +41,11 @@ Pane {
         settingsDrawer.open()
     }
 
+    // Overwriting the original file always goes through the confirmation dialog.
+    function confirmSaveInPlace() {
+        overwriteDialog.open()
+    }
+
     // Index of the currently selected TRANSLATION TARGET locale
     property int currentTargetIdx: {
         var idx = targetLocaleCodes.indexOf(vm.translationTargetCode)

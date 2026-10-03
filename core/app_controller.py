@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable, Sequence
 from threading import RLock
 
+from core.atomic import write_json_atomic
 from core.extrator import ExtractedEntry, XmlDocumentIndex, indexar_xml
 from core.project import TranslationProject
 from core.translation_worker import TranslationWorker
@@ -266,8 +267,8 @@ class AppController:
         }
         try:
             os.makedirs(user_data_dir(), exist_ok=True)
-            with open(user_data_path(CONFIG_FILE), "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            # Atomic: this file holds the API keys; a crash must not truncate it.
+            write_json_atomic(user_data_path(CONFIG_FILE), data)
         except OSError:
             pass
 
@@ -338,8 +339,7 @@ class AppController:
                     data = json.load(f)
             data["game_folder"] = path
             os.makedirs(user_data_dir(), exist_ok=True)
-            with open(user_data_path(CONFIG_FILE), "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            write_json_atomic(user_data_path(CONFIG_FILE), data)
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -583,14 +583,14 @@ class AppController:
                 "all_done":            i18n.get("log_translation_already_complete"),
                 "batch_start":         i18n.get("log_mass_translation_start"),
                 "sending_gemini":      i18n.get("log_sending_gemini"),
-                "cancelled":           i18n.get("log_mass_translation_cancelled"),
+                "cancelled":           i18n.get("log_mass_trans_cancelled"),
                 "batch_failed":        i18n.get("log_batch_fail"),
                 "items_skipped":       i18n.get("log_items_skipped"),
                 "ollama_mini":         i18n.get("log_ollama_mini"),
                 "ollama_mini_failed":  i18n.get("log_ollama_mini_failed"),
                 "api_error":           i18n.get("log_api_error_prefix"),
                 "batch_count":         i18n.get("log_batch_complete"),
-                "final_done":          i18n.get("log_mass_translation_done"),
+                "final_done":          i18n.get("log_mass_trans_done"),
                 "context_unsupported": i18n.get("log_context_unsupported"),
             }
         return cfg
@@ -855,13 +855,10 @@ class AppController:
     def _write_presets(self, presets: list[dict]) -> bool:
         try:
             os.makedirs(user_data_dir(), exist_ok=True)
-            with open(user_data_path(PRESETS_FILE), "w", encoding="utf-8") as f:
-                json.dump(
-                    {"presets": [_preset_for_storage(preset) for preset in presets]},
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                )
+            write_json_atomic(
+                user_data_path(PRESETS_FILE),
+                {"presets": [_preset_for_storage(preset) for preset in presets]},
+            )
             return True
         except OSError:
             return False

@@ -287,6 +287,10 @@ class AppViewModel(QObject):
     xmlBusyChanged = Signal()
     _xmlAnalysisFinished = Signal(int, str, object, str)
     _xmlExtractionFinished = Signal(int, str, str, object, object, object, str)
+    # Translation runs on worker threads; the table model belongs to the GUI
+    # thread, so its updates are handed over through these queued signals.
+    _tableEntryUpdateRequested = Signal(str, str, str)
+    _batchFinishRequested = Signal()
     updateChanged = Signal()
     _updateCheckFinished = Signal(object, str, bool)
     _updateDownloadProgress = Signal(int)
@@ -336,6 +340,8 @@ class AppViewModel(QObject):
         self._xml_operation_id: int = 0
         self._xmlAnalysisFinished.connect(self._finish_xml_analysis)
         self._xmlExtractionFinished.connect(self._finish_xml_extraction)
+        self._tableEntryUpdateRequested.connect(self._apply_table_entry_update)
+        self._batchFinishRequested.connect(self._finish_batch)
         self._update_status: str = "idle"
         self._update_error_code: str = ""
         self._update_progress: int = 0
@@ -995,16 +1001,16 @@ class AppViewModel(QObject):
 
         def worker() -> None:
             self._ctrl.project.mark_translating(xpath)
-            self._table.update_entry(xpath, "…", "translating")
+            self._tableEntryUpdateRequested.emit(xpath, "…", "translating")
             result = self._ctrl.translate_single(xpath, config)
             entry = self._ctrl.project.get_entry(xpath)
             if entry and entry.status == "error":
                 self.errorOccurred.emit(result)
                 result = entry.translation
-                self._table.update_entry(xpath, result, "error")
+                self._tableEntryUpdateRequested.emit(xpath, result, "error")
             else:
                 self._ctrl.project.set_translation(xpath, result)
-                self._table.update_entry(xpath, result, "translated")
+                self._tableEntryUpdateRequested.emit(xpath, result, "translated")
             done, total = self._ctrl.project.stats()
             self.progressChanged.emit(done, total)
             self._persist_review_state()
@@ -1029,10 +1035,10 @@ class AppViewModel(QObject):
 
         def on_batch_start(xpaths: list[str]) -> None:
             for xpath in xpaths:
-                self._table.update_entry(xpath, "…", "translating")
+                self._tableEntryUpdateRequested.emit(xpath, "…", "translating")
 
         def on_entry(xpath: str, text: str) -> None:
-            self._table.update_entry(xpath, text, "done")
+            self._tableEntryUpdateRequested.emit(xpath, text, "done")
             done, total = self._ctrl.project.stats()
             self.progressChanged.emit(done, total)
             if self._selected_xpath == xpath:
@@ -1055,7 +1061,8 @@ class AppViewModel(QObject):
 
     @Slot()
     def startBatchTranslation(self) -> None:
-        if self._xml_busy:
+        # A second worker over the same project would race the first one.
+        if self._xml_busy or self._is_translating:
             return
         if self.providerNeedsApiKey and not self._ctrl.api_key:
             self.errorOccurred.emit(self._i18n.get("log_api_key_needed"))
@@ -1069,10 +1076,10 @@ class AppViewModel(QObject):
             # while waiting for the API response — especially important for
             # Gemini where the whole batch is sent in one call.
             for xpath in xpaths:
-                self._table.update_entry(xpath, "…", "translating")
+                self._tableEntryUpdateRequested.emit(xpath, "…", "translating")
 
         def on_entry(xpath: str, text: str) -> None:
-            self._table.update_entry(xpath, text, "done")
+            self._tableEntryUpdateRequested.emit(xpath, text, "done")
             done, total = self._ctrl.project.stats()
             self.progressChanged.emit(done, total)
 
@@ -1087,9 +1094,18 @@ class AppViewModel(QObject):
     @Slot()
     def cancelTranslation(self) -> None:
         self._ctrl.cancel_translation()
-        self.logAppended.emit(self._i18n.get("log_mass_translation_cancelled"))
+        self.logAppended.emit(self._i18n.get("log_mass_trans_cancelled"))
 
     def _batch_finished(self) -> None:
+        """Called by the worker thread when a batch ends."""
+        self._batchFinishRequested.emit()
+
+    @Slot(str, str, str)
+    def _apply_table_entry_update(self, xpath: str, translation: str, status: str) -> None:
+        self._table.update_entry(xpath, translation, status)
+
+    @Slot()
+    def _finish_batch(self) -> None:
         self._table.refresh_all(self._ctrl.project.entries)
         self.progressChanged.emit(*self._ctrl.project.stats())
         self._set_translating(False)
@@ -1440,19 +1456,20 @@ class AppViewModel(QObject):
     @Slot(result="QVariantList")
     def loadGlossary(self) -> list:
         from core.tradutor_api import carregar_glossario
-        data = carregar_glossario()
+        data = carregar_glossario(self._ctrl.translation_target.get("code"))
         return [{"original": k, "translation": v} for k, v in data.items()]
 
     @Slot("QVariantList")
     def saveGlossary(self, entries: list) -> None:
-        import json
 
         from core.app_controller import user_data_path
-        path = user_data_path("glossario.json")
+        from core.atomic import write_json_atomic
+        from core.tradutor_api import glossary_filename
+        # Each target language has its own glossary file.
+        path = user_data_path(glossary_filename(self._ctrl.translation_target.get("code")))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         data = {e["original"]: e["translation"] for e in entries if e.get("original")}
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        write_json_atomic(path, data, indent=4)
         self.logAppended.emit(self._i18n.get("log_glossary_saved"))
 
     # ------------------------------------------------------------------

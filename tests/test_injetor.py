@@ -56,11 +56,14 @@ class TestInjetarTraducoes:
         )
         assert resultado is False
 
-    def test_unknown_xpath_is_silently_ignored(self, tmp_path):
+    def test_translations_that_match_nothing_fail_without_writing(self, tmp_path):
+        # None of the translations belongs to this file: reporting success for
+        # an untouched copy of the original would hide the mismatch.
         traducoes = {"/root/item[99]/dispName[1]": "Ghost"}
         output_xml = str(tmp_path / "output.xml")
         resultado = injetar_traducoes(FIXTURE_XML, traducoes, output_xml)
-        assert resultado is True  # should not raise
+        assert resultado is False  # and it does not raise
+        assert not os.path.exists(output_xml)
 
     def test_output_is_valid_xml(self, tmp_path):
         _, dados = extrair_textos(FIXTURE_XML, "item", "dispName")

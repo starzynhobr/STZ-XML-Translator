@@ -205,7 +205,9 @@ class TranslationWorker:
                 self._batch_error_code = "batch_failed"
                 results = self._translate_batch_gemini(batch)
 
-                if self._cancel_event.is_set():
+                # A cancel that arrives while the request is in flight still keeps
+                # the answer: it was already paid for. The loop stops afterwards.
+                if results is None and self._cancel_event.is_set():
                     self._on_log(self._s("cancelled"))
                     self._on_done()
                     return
@@ -236,7 +238,7 @@ class TranslationWorker:
 
                 results = translate_batch_google_free(batch, self._config)
 
-                if self._cancel_event.is_set():
+                if results is None and self._cancel_event.is_set():
                     self._on_log(self._s("cancelled"))
                     self._on_done()
                     return

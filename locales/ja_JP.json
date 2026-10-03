@@ -58,6 +58,8 @@
   "log_mass_trans_cancel_req": "キャンセルが要求されました...",
   "log_mass_trans_cancelled": "一括翻訳はユーザーによってキャンセルされました。",
   "log_mass_trans_done": "一括翻訳が完了しました！",
+  "log_translation_already_complete": "すべての項目はチェックポイントで翻訳済みです。",
+  "log_batch_fail": "バッチに失敗しました — 翻訳を中断します。",
   "export_cancelled": "エクスポートはユーザーによってキャンセルされました。",
   "export_success": "翻訳されたXMLファイルが正常に保存されました。",
   "export_fail": "XMLファイルの保存中にエラーが発生しました。",

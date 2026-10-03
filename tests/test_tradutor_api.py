@@ -27,6 +27,7 @@ class TestCarregarGlossario:
         assert isinstance(result, dict)
 
     def test_returns_empty_dict_when_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(tmp_path))
         monkeypatch.setattr("core.tradutor_api.os.path.dirname", lambda _: str(tmp_path))
         result = carregar_glossario()
         assert result == {}
@@ -36,6 +37,7 @@ class TestCarregarGlossario:
         lang_file = tmp_path / "glossario_pt.json"
         lang_file.write_text(json.dumps(lang_glossary), encoding="utf-8")
 
+        monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(tmp_path))
         monkeypatch.setattr("core.tradutor_api.os.path.dirname", lambda _: str(tmp_path))
         result = carregar_glossario(target_lang="pt")
         assert result == lang_glossary
@@ -45,6 +47,7 @@ class TestCarregarGlossario:
         generic_file = tmp_path / "glossario.json"
         generic_file.write_text(json.dumps(generic), encoding="utf-8")
 
+        monkeypatch.setenv("STZ_XML_TRANSLATOR_DATA_DIR", str(tmp_path))
         monkeypatch.setattr("core.tradutor_api.os.path.dirname", lambda _: str(tmp_path))
         result = carregar_glossario(target_lang="pt")
         assert result == generic
@@ -200,9 +203,9 @@ class TestGeminiErrors:
 
 
 class TestTranslateText:
-    def test_unknown_service_returns_error_string(self):
-        result = translate_text("UnknownServiceXYZ", "hello", {})
-        assert "nao reconhecido" in result.lower() or "não reconhecido" in result.lower()
+    def test_unknown_service_raises(self):
+        with pytest.raises(ValueError):
+            translate_text("UnknownServiceXYZ", "hello", {})
 
     def test_available_services_registered(self):
         assert "Gemini" in AVAILABLE_SERVICES
@@ -314,23 +317,14 @@ class TestTranslateText:
         assert "reference data and must not appear" in prompt
         assert result == {"/root/item[1]/bio[1]": "Técnico talentoso."}
 
-    def test_api_exception_returns_error_string(self):
+    def test_api_exception_propagates_instead_of_becoming_text(self):
+        # An error string returned here would be stored as the translation.
         mock_service = MagicMock()
         mock_service.translate.side_effect = RuntimeError("boom")
 
         with patch.dict("core.tradutor_api.AVAILABLE_SERVICES", {"Gemini": mock_service}):
-            result = translate_text("Gemini", "Hello", {})
-
-        assert "ERRO" in result
-
-    def test_ollama_connection_refused_returns_friendly_message(self):
-        mock_service = MagicMock()
-        mock_service.translate.side_effect = Exception("Connection refused")
-
-        with patch.dict("core.tradutor_api.AVAILABLE_SERVICES", {"Llama 3 (Local)": mock_service}):
-            result = translate_text("Llama 3 (Local)", "Hello", {})
-
-        assert "Ollama" in result
+            with pytest.raises(RuntimeError):
+                translate_text("Gemini", "Hello", {})
 
 
 class TestTraduzirArquivoJson:

@@ -103,15 +103,17 @@ def test_batch_failed_or_missing_result_marks_error(project, tmp_path, result):
     worker._on_done.assert_called_once()
 
 
-def test_cancelled_response_does_not_leave_translating(project, tmp_path):
+def test_cancelled_response_is_kept_and_does_not_leave_translating(project, tmp_path):
+    # The answer of a request already in flight was paid for: cancelling stops
+    # the next batch but keeps what arrived.
     worker = make_worker(project, tmp_path)
     def response(_):
         worker.cancel()
         return {"/a": "Late response"}
     with patch.object(worker, "_translate_batch_gemini", side_effect=response):
         worker._run()
-    assert project.entries["/a"].status == "pending"
-    assert project.entries["/a"].translation == ""
+    assert project.entries["/a"].status == "translated"
+    assert project.entries["/a"].translation == "Late response"
 
 
 def test_confirmed_entries_not_retranslated_by_pending_batch(project, tmp_path):
