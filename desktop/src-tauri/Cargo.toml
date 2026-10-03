@@ -1,0 +1,24 @@
+[package]
+name = "stz-xml-translator-desktop"
+version = "1.5.0"
+description = "STZ XML Translator desktop shell"
+authors = ["starzynhobr"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/starzynhobr/STZ-XML-Translator"
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "stz_xml_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2.12.1", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"

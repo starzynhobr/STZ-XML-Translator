@@ -1,0 +1,130 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/* One ground, one accent. The palette lives in CSS variables so the theme and
+   the accent can change at runtime without touching a component. */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e1014;
+  --panel: #12151d;
+  --field: #171b26;
+  --chip: #151923;
+  --raised: #1a2030;
+  --line: #232838;
+  --rowline: #1c2130;
+  --edge: #2a3042;
+  --edge-strong: #343b50;
+  --track: #262c3c;
+  --ink: #e6e8ee;
+  --soft: #c5cbd8;
+  --dim: #9ba3b4;
+  --faint: #6f788c;
+  --warn: #f0b24a;
+  --warn-bar: #c98a1b;
+  --bad: #ff9b8a;
+  --on-accent: #06211d;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ground: #f4f5f8;
+  --panel: #ffffff;
+  --field: #ffffff;
+  --chip: #ffffff;
+  --raised: #eaeef5;
+  --line: #e0e4ec;
+  --rowline: #eceff4;
+  --edge: #d0d6e1;
+  --edge-strong: #b4bccb;
+  --track: #dfe3eb;
+  --ink: #171a21;
+  --soft: #363d4d;
+  --dim: #565f72;
+  --faint: #7c8598;
+  --warn: #8a5a00;
+  --warn-bar: #b9770a;
+  --bad: #b3261e;
+  --on-accent: #ffffff;
+}
+
+:root[data-accent="teal"] { --accent: #5eead4; }
+:root[data-accent="blue"] { --accent: #7cb7ff; }
+:root[data-accent="amber"] { --accent: #f5b642; }
+/* On a light ground the accent must be dark enough to carry white text. */
+:root[data-theme="light"][data-accent="teal"] { --accent: #0f766e; }
+:root[data-theme="light"][data-accent="blue"] { --accent: #1d5fd1; }
+:root[data-theme="light"][data-accent="amber"] { --accent: #8f5d06; }
+
+@theme inline {
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+
+  --color-ground: var(--ground);
+  --color-panel: var(--panel);
+  --color-field: var(--field);
+  --color-chip: var(--chip);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-rowline: var(--rowline);
+  --color-edge: var(--edge);
+  --color-edge-strong: var(--edge-strong);
+  --color-track: var(--track);
+  --color-ink: var(--ink);
+  --color-soft: var(--soft);
+  --color-dim: var(--dim);
+  --color-faint: var(--faint);
+  --color-warn: var(--warn);
+  --color-warn-bar: var(--warn-bar);
+  --color-bad: var(--bad);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+select,
+input,
+textarea {
+  font: inherit;
+}
+
+button:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Thin scrollbars that match the ground instead of the OS default. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--edge) transparent;
+}
+
+@keyframes pulse-dot {
+  50% { opacity: 0.35; }
+}
+.pulse-dot { animation: pulse-dot 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot { animation: none; }
+}
