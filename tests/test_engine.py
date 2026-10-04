@@ -216,9 +216,11 @@ def test_feedback_sends_only_the_declared_fields(env):
             return type("Response", (), {"status_code": 200})()
 
     session.send_feedback("O botão de exportar poderia lembrar a última pasta.", http=Http)
-    assert sent["url"] == "https://stzlabs.com/api/feedback"
-    assert set(sent["json"]) == {"product", "text", "version", "locale", "os"}
-    assert sent["json"]["product"] == "xml-translator"
+    assert sent["url"] == "https://stzlabs.com/api/feedback/stz-xml-translator"
+    assert set(sent["json"]) == {"type", "text", "locale"}
+    assert sent["json"]["type"] == "suggestion"
+    assert sent["json"]["text"].startswith("[STZ XML Translator ")
+    assert sent["json"]["text"].endswith("O botão de exportar poderia lembrar a última pasta.")
     short = client.post("/api/feedback", json={"text": "curto"})
     assert (short.status_code, short.json()) == (400, {"error": "feedback_length"})
 
@@ -242,3 +244,47 @@ def test_importing_a_file_that_is_not_a_backup_reports_zero(env):
     bad.write_text('["not", "a", "backup"]', encoding="utf-8")
     response = client.post("/api/backup/import", json={"path": str(bad)})
     assert (response.status_code, response.json()) == (200, {"count": 0})
+
+@pytest.mark.parametrize("status,error", [(429, "feedback_rate_limited"), (503, "feedback_unavailable"), (302, "feedback_unavailable")])
+def test_feedback_maps_remote_errors_without_retry(env, status, error):
+    session, _client, _xml, _tmp = env
+    calls = []
+
+    class Http:
+        @staticmethod
+        def post(url, json, timeout):
+            calls.append(json)
+            return type("Response", (), {"status_code": status})()
+
+    with pytest.raises(session_module.SessionError, match=error):
+        session.send_feedback("Teste técnico de erro do serviço.", http=Http)
+    assert len(calls) == 1
+
+
+def test_feedback_enforces_final_limit_and_normalizes_locale(env):
+    session, client, _xml, _tmp = env
+    session.i18n.load_language("ja_JP")
+    payload = session.feedback_payload("x" * 400)
+    assert payload["locale"] == "en"
+    assert "ja_JP" in payload["text"]
+    assert len(payload["text"]) <= 500
+    assert client.post("/api/feedback", json={"text": "x" * 401}).status_code == 400
+
+
+def test_feedback_connection_error_is_reported(env):
+    session, _client, _xml, _tmp = env
+
+    class Http:
+        @staticmethod
+        def post(url, json, timeout):
+            raise session_module.requests.ConnectionError("offline")
+
+    with pytest.raises(session_module.SessionError, match="feedback_offline"):
+        session.send_feedback("Teste técnico sem conexão.", http=Http)
+
+
+def test_feedback_counts_emoji_like_the_frontend(env):
+    session, client, _xml, _tmp = env
+    payload = session.feedback_payload("😀" * 200)
+    assert len(payload["text"].encode("utf-16-le")) // 2 <= 500
+    assert client.post("/api/feedback", json={"text": "😀" * 201}).status_code == 400

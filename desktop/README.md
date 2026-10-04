@@ -52,6 +52,16 @@ npm run dev                                 # terminal 2, desktop/
 Native file dialogs only exist inside Tauri; in a browser the app asks for a
 typed path instead.
 
+## Feedback
+
+Settings sends feedback through the authenticated local engine to
+`https://stzlabs.com/api/feedback/stz-xml-translator`. Input accepts 10–400
+characters; a short app/version/language/OS header keeps the complete request
+within the API's 500-character limit. No XML contents, keys or file paths are
+sent. The site stores suggestions and forwards them to the private XML channel;
+a successful response confirms storage, not guaranteed Discord delivery.
+Failures preserve the draft. No webhook or server secret belongs in the app.
+
 ## Test
 
 ```powershell
@@ -64,9 +74,3 @@ The end-to-end tests start their own engine with an isolated data directory and
 a fake Ollama, on their own ports, so they can run while `tauri dev` is open.
 Edge is used because it is the engine behind the WebView2 the shell embeds; no
 browser download is needed.
-
-## Not done yet
-
-The release build expects a frozen engine named `stz-xml-engine.exe` next to
-the shell. Freezing it (Nuitka), the installer and the release workflow still
-build the Qt app.

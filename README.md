@@ -1,10 +1,10 @@
 # STZ XML Translator
 
-A desktop tool for modders and localization teams to translate XML files from games or other structured content. Built with Python 3.12 + PySide6 + QML, it provides a modern interface to load XML files, preview original strings, apply AI or machine translations in batch or individually, review results, and export the updated file — without altering the original structure, attributes, or namespace.
+A desktop tool for modders and localization teams to translate XML files from games or other structured content. Built with a Tauri + React desktop interface and a Python 3.12 translation engine, it provides a modern interface to load XML files, preview original strings, apply AI or machine translations in batch or individually, review results, and export the updated file — without altering the original structure, attributes, or namespace.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
-![Qt](https://img.shields.io/badge/Qt-6.7%2B-green)
+![Tauri](https://img.shields.io/badge/Tauri-2-blue)
 ![License](https://img.shields.io/badge/license-GPLv3%20%2F%20Commercial-orange)
 
 ---
@@ -16,7 +16,7 @@ A desktop tool for modders and localization teams to translate XML files from ga
 - **Provider-adaptive UI** — AI-specific controls (Context/Theme field, AI model selector) only appear when an AI provider is selected; button labels adapt accordingly.
 - **Batch and single translation** — translate all pending entries at once or individually; progress is checkpointed after each batch so you can resume later.
 - **Tag picker with presets** — auto-detect parent/child tags from the loaded file; save named presets for quick reuse across sessions.
-- **Themes** — five built-in themes: Windows Fluent, Neutral Deep, Cool Tint (dark), Light Azure, and Beige Café (light). All colours are fully tokenized.
+- **Themes** — light, dark or Windows system mode, with teal, blue and amber accents.
 - **Multi-language UI** — interface strings in five languages: English, Portuguese (BR), Spanish, French, and Japanese.
 - **Glossary manager** — define fixed word pairs that are injected into AI prompts for consistent terminology across the whole game.
 - **Save in place** — overwrite the original file and auto-reload; the translated text becomes the new original for follow-up passes.
@@ -26,17 +26,19 @@ A desktop tool for modders and localization teams to translate XML files from ga
 
 ## Quick Start
 
-**Requirements:** Python 3.12 · Windows 10/11 (FluentWinUI3 requires Qt 6.7+)
+**Development requirements:** Python 3.12 · Node.js · Rust · Windows 10/11
 
 ```powershell
 git clone https://github.com/StarzynhoBR/STZ-XML-Translator.git
 cd STZ-XML-Translator
 uv venv
 uv pip install -e ".[dev]"
-uv run python main_qt.py
+cd desktop
+npm ci
+npm run tauri dev
 ```
 
-No API key is required to run the app. Google Translate (free) works out of the box; AI providers require a key configured via the **API Key Configuration** button.
+No API key is required to run the app. Google Translate (free) works out of the box; AI providers require a key configured in **Settings → Translation**.
 
 ---
 

@@ -26,9 +26,9 @@ from core.tradutor_api import carregar_glossario, glossary_filename, list_gemini
 from core.version import app_version
 
 PREFS_FILE = "ui_prefs.json"
-FEEDBACK_URL = "https://stzlabs.com/api/feedback"
-FEEDBACK_PRODUCT = "xml-translator"
-FEEDBACK_MIN, FEEDBACK_MAX = 10, 2000
+FEEDBACK_URL = "https://stzlabs.com/api/feedback/stz-xml-translator"
+FEEDBACK_MIN, FEEDBACK_MAX = 10, 400
+FEEDBACK_API_MAX = 500
 UPDATE_INTERVAL_SECONDS = 24 * 60 * 60
 LOG_KEPT = 200
 
@@ -724,23 +724,32 @@ class Session:
 
     def feedback_payload(self, text: str) -> dict:
         """Everything a feedback message carries. Never file contents or keys."""
-        return {
-            "product": FEEDBACK_PRODUCT,
-            "text": text.strip(),
-            "version": app_version(),
-            "locale": self.i18n.language,
-            "os": f"{platform.system()} {platform.release()}",
-        }
+        message = text.strip()
+        # Match the browser counter and the server JavaScript string length.
+        message_length = len(message.encode("utf-16-le")) // 2
+        if not FEEDBACK_MIN <= message_length <= FEEDBACK_MAX:
+            raise SessionError("feedback_length")
+        language = self.i18n.language
+        locale = language.split("_")[0].split("-")[0]
+        # The site currently supports no Japanese locale; retain it in diagnostics.
+        if locale not in {"pt", "en", "es", "fr", "de", "it"}:
+            locale = "en"
+        diagnostics = (
+            f"[STZ XML Translator {app_version()} | {language} | "
+            f"{platform.system()} {platform.release()}]"
+        )
+        final_text = f"{diagnostics}\n{message}"
+        if len(final_text.encode("utf-16-le")) // 2 > FEEDBACK_API_MAX:
+            raise SessionError("feedback_length")
+        return {"type": "suggestion", "text": final_text, "locale": locale}
 
     def send_feedback(self, text: str, *, http=requests) -> None:
         payload = self.feedback_payload(text)
-        if not FEEDBACK_MIN <= len(payload["text"]) <= FEEDBACK_MAX:
-            raise SessionError("feedback_length")
         try:
             response = http.post(FEEDBACK_URL, json=payload, timeout=12)
         except requests.RequestException as exc:
             raise SessionError("feedback_offline", 502) from exc
         if response.status_code == 429:
             raise SessionError("feedback_rate_limited", 429)
-        if response.status_code >= 400:
+        if not 200 <= response.status_code < 300:
             raise SessionError("feedback_unavailable", 502)

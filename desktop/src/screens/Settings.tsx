@@ -33,7 +33,7 @@ const ACCENTS: [Accent, MessageKey, string][] = [
   ['amber', 'accentAmber', '#f5b642'],
 ]
 const FEEDBACK_MIN = 10
-const FEEDBACK_MAX = 2000
+const FEEDBACK_MAX = 400
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
@@ -202,7 +202,7 @@ export default function Settings({ state, refresh, onBack, onOpenUpdate }: Props
     setSending(true)
     try {
       await api('/api/feedback', 'POST', { text: feedback })
-      // Only a delivered message clears the box: a failed one stays for a retry.
+      // Clear only after the server accepts the message; keep failures for a retry.
       setFeedback('')
       setFeedbackOpen(false)
       toast.success(t('toastFeedback'))
