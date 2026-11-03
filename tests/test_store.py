@@ -85,6 +85,43 @@ def test_json_checkpoints_are_imported_once(env, tmp_path, monkeypatch):
     assert [v["source"] for v in versions] == ["import"]
 
 
+def test_search_and_memory(tmp_path):
+    store = TranslationStore(str(tmp_path / "t.db"))
+    store.save("p1:a.xml", "pt", [EntryState("/x[1]", "Iron Hatchet", "Machado de Ferro", "confirmed")])
+    store.save("p1:b.xml", "pt", [EntryState("/y[1]", "Iron Hatchet", "Machadinha", "translated"),
+                                  EntryState("/y[2]", "50% off_sale", "", "pending")])
+    store.save("p2:a.xml", "pt", [EntryState("/x[1]", "Iron Hatchet", "Outro", "translated")])
+
+    found = store.search("p1:", "pt", "hatchet")
+    assert [(r["key"], r["translation"]) for r in found] == [("p1:a.xml", "Machado de Ferro"), ("p1:b.xml", "Machadinha")]
+    assert [r["xpath"] for r in store.search("p1:", "pt", "%")] == ["/y[2]"]  # wildcards are literal
+    assert store.search("p1:", "pt", "machado")[0]["xpath"] == "/x[1]"  # translations too
+
+    memory = store.memory("pt", "Iron Hatchet")
+    assert memory[0] == {"translation": "Machado de Ferro", "confirmed": True, "uses": 1}
+    assert {m["translation"] for m in memory} == {"Machado de Ferro", "Machadinha", "Outro"}
+
+
+def test_suggestions_and_project_search_endpoints(env):
+    client, game, _tmp = env
+    project = client.post("/api/projects", json={"folder": str(game), "name": "Game"}).json()
+    client.post(f"/api/projects/{project['id']}/open")
+    load(client, game / "items.xml")
+    entries = client.get("/api/entries").json()["entries"]
+    client.post("/api/entries/edit", json={"id": entries[0]["id"], "text": "Uma espada"})
+
+    results = client.get("/api/search", params={"q": "espada"}).json()["results"]
+    assert [(r["file"], r["original"]) for r in results] == [("items.xml", entries[0]["original"])]
+    assert results[0]["path"].endswith("items.xml")
+    # Its own text is not suggested back to it.
+    assert client.get("/api/entries/suggestions", params={"id": entries[0]["id"]}).json()["suggestions"] == []
+
+    client.post("/api/entries/edit", json={"id": entries[1]["id"], "text": "Escudo", "source": "memory"})
+    versions = client.get("/api/entries/history", params={"id": entries[1]["id"]}).json()["versions"]
+    assert versions[0]["source"] == "memory"
+    assert client.post("/api/entries/edit", json={"id": entries[1]["id"], "text": "x", "source": "ai"}).status_code == 422
+
+
 def test_project_progress_comes_from_the_database_and_survives_a_move(env, tmp_path):
     client, game, _tmp = env
     project = client.post("/api/projects", json={"folder": str(game), "name": "Game"}).json()

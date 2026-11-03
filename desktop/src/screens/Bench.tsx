@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, FileText, Search, SlidersHorizontal } from 'luc
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button, IconButton, LogoMark, buttonClass, cardClass, cx, eyebrowClass, fieldClass, providerLabel } from '@/components/ui'
-import { api, type EngineState, type Entry, type Status, type Term, type Version } from '@/lib/bridge'
+import { api, takePendingSearch, type EngineState, type Entry, type Status, type Suggestion, type Term, type Version } from '@/lib/bridge'
 import { XML_FILTER, pickSavePath } from '@/lib/files'
 import { errorText, useT, type Translate } from '@/lib/i18n'
 import type { MessageKey } from '@/lib/messages'
@@ -67,8 +67,45 @@ const SOURCE_LABEL: Record<string, MessageKey> = {
   manual: 'sourceManual',
   confirm: 'sourceConfirm',
   import: 'sourceImport',
+  memory: 'sourceMemory',
+  agent: 'sourceAgent',
   edit: 'sourceEdit',
   reset: 'sourceEdit',
+}
+
+/** How the same original was translated elsewhere in the game (translation memory). */
+function Suggestions({ entry, onUse }: { entry: Entry; onUse: (text: string) => void }) {
+  const t = useT()
+  const [items, setItems] = useState<Suggestion[]>([])
+  useEffect(() => {
+    let stale = false
+    api<{ suggestions: Suggestion[] }>(`/api/entries/suggestions?id=${encodeURIComponent(entry.id)}`).then(
+      (data) => !stale && setItems(data.suggestions),
+      () => !stale && setItems([]),
+    )
+    return () => {
+      stale = true
+    }
+  }, [entry.id, entry.translation])
+  if (!items.length) return null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs text-dim">{t('memoryTitle')}</span>
+      {items.map((item) => (
+        <button
+          key={item.translation}
+          type="button"
+          onClick={() => onUse(item.translation)}
+          className="flex items-baseline gap-2 rounded-[10px] border border-edge px-3 py-2 text-left text-[13px] hover:bg-raised"
+        >
+          <span className="min-w-0 flex-1 text-ink">{item.translation}</span>
+          <span className="shrink-0 text-xs text-dim">
+            {item.confirmed ? t('memoryConfirmed', { n: item.uses }) : t('memoryUses', { n: item.uses })}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
 }
 
 /** Earlier versions of the selected entry, from the engine's SQLite history. */
@@ -137,7 +174,8 @@ interface Props {
 export default function Bench({ state, entries, terms, refresh, onOpenStart, onOpenSettings, onOpenGlossary, onOpenUpdate }: Props) {
   const t = useT()
   const [filter, setFilter] = useState<Filter>('all')
-  const [query, setQuery] = useState('')
+  // A project-wide search result opens its file already filtered to that text.
+  const [query, setQuery] = useState(takePendingSearch)
   const [field, setField] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -478,6 +516,15 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
                   </div>
                 )}
               </div>
+
+              <Suggestions
+                entry={selected}
+                onUse={(text) => {
+                  editing.current = false
+                  setDraft(text)
+                  void run(() => api('/api/entries/edit', 'POST', { id: selected.id, text, source: 'memory' }))
+                }}
+              />
 
               <History
                 entry={selected}

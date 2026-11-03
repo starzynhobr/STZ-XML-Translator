@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import Select from '@/components/Select'
 import { Button, IconButton, LogoMark, PageHeader, cardClass, cx, eyebrowClass, fieldClass } from '@/components/ui'
-import { api, type EngineState, type GameDetection, type Progress, type ProjectDetail, type ProjectFile, type ProjectSummary } from '@/lib/bridge'
+import { api, setPendingSearch, type EngineState, type GameDetection, type Progress, type ProjectDetail, type ProjectFile, type ProjectSummary, type SearchResult } from '@/lib/bridge'
 import { formatSize, pickFolder } from '@/lib/files'
 import { errorText, useT } from '@/lib/i18n'
 
@@ -334,6 +334,34 @@ export function ProjectView({ state, refresh, onPickFile, onOpenSettings, onOpen
     return needle ? all.filter((file) => file.name.toLowerCase().includes(needle)) : all
   }, [detail, query])
 
+  // Texts across every opened file, from the engine's database.
+  const [hits, setHits] = useState<SearchResult[]>([])
+  useEffect(() => {
+    const needle = query.trim()
+    if (needle.length < 3) {
+      setHits([])
+      return
+    }
+    let stale = false
+    const timer = setTimeout(() => {
+      api<{ results: SearchResult[] }>(`/api/search?q=${encodeURIComponent(needle)}`).then(
+        (data) => !stale && setHits(data.results),
+        () => !stale && setHits([]),
+      )
+    }, 250)
+    return () => {
+      stale = true
+      clearTimeout(timer)
+    }
+  }, [query])
+
+  const openHit = (hit: SearchResult) => {
+    const file = detail?.files.find((item) => item.name === hit.file)
+    if (!file) return
+    setPendingSearch(hit.original)
+    openFile(file)
+  }
+
   const last = detail?.files.find((file) => file.name === detail.lastFile && file.groups.length)
 
   return (
@@ -388,6 +416,22 @@ export function ProjectView({ state, refresh, onPickFile, onOpenSettings, onOpen
               </label>
             </div>
 
+            {hits.length > 0 && (
+              <section aria-label={t('textHits', { n: hits.length })} className="flex flex-col gap-2">
+                <span className={eyebrowClass}>{t('textHits', { n: hits.length })}</span>
+                <ul className={cx(cardClass, 'm-0 max-h-[320px] list-none divide-y divide-line overflow-y-auto p-0')}>
+                  {hits.map((hit) => (
+                    <li key={`${hit.file}${hit.xpath}`}>
+                      <button type="button" disabled={busy} onClick={() => openHit(hit)} className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-0.5 px-4 py-2.5 text-left text-[13px] enabled:hover:bg-raised">
+                        <span className="col-span-2 font-mono text-xs text-dim">{hit.file}</span>
+                        <span className="truncate text-ink" title={hit.original}>{hit.original}</span>
+                        <span className={cx('truncate', hit.translation ? 'text-soft' : 'text-faint')} title={hit.translation}>{hit.translation || t('noTranslation')}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {(
               <ul className={cx(cardClass, 'm-0 list-none divide-y divide-line overflow-hidden p-0')}>
                 {files.map((file) => (

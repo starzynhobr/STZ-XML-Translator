@@ -6,6 +6,7 @@ the shell reads from ``runtime.json``, so other local pages cannot drive it.
 from __future__ import annotations
 
 import secrets
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,6 +47,8 @@ class TranslateBody(BaseModel):
 class EntryBody(BaseModel):
     id: str
     text: str | None = None
+    # Only the UI's own kinds of edit; the AI and imports record theirs server-side.
+    source: Literal["manual", "memory"] = "manual"
 
 
 class BackupBody(BaseModel):
@@ -212,8 +215,16 @@ def create_app(session: Session, token: str) -> FastAPI:
 
     @app.post("/api/entries/edit", dependencies=auth)
     def edit(body: EntryBody) -> dict:
-        session.edit(body.id, body.text or "")
+        session.edit(body.id, body.text or "", body.source)
         return ok
+
+    @app.get("/api/entries/suggestions", dependencies=auth)
+    def suggestions(id: str) -> dict:
+        return {"suggestions": session.suggestions(id)}
+
+    @app.get("/api/search", dependencies=auth)
+    def search_project(q: str) -> dict:
+        return {"results": session.search_project(q)}
 
     @app.get("/api/entries/history", dependencies=auth)
     def history(id: str) -> dict:

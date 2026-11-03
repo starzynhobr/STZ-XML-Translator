@@ -552,7 +552,7 @@ class Session:
 
         self._spawn(work)
 
-    def edit(self, xpath: str, text: str) -> None:
+    def edit(self, xpath: str, text: str, source: str = "manual") -> None:
         self._require_project()
         entry = self.ctrl.project.get_entry(xpath)
         if entry is None:
@@ -562,9 +562,28 @@ class Session:
         if text == entry.translation:
             return
         # An edited text is no longer the reviewed one: it goes back to "to review".
-        self.ctrl.project.set_translation(xpath, text, "translated", source="manual")
+        self.ctrl.project.set_translation(xpath, text, "translated", source=source)
         self._persist()
         self._bump(xpath)
+
+    def suggestions(self, xpath: str) -> list[dict]:
+        """How this exact original was already translated elsewhere (translation memory)."""
+        self._require_project()
+        entry = self.ctrl.project.get_entry(xpath)
+        if entry is None:
+            raise SessionError("entry_not_found", 404)
+        found = self.ctrl.store.memory(self._target_code(), entry.original)
+        return [s for s in found if s["translation"] != entry.translation]
+
+    def search_project(self, query: str, limit: int = 200) -> list[dict]:
+        """Matches across every opened file of the active project (or the loose files)."""
+        prefix = f"{self._project.id}:" if self._project else "file:"
+        results = []
+        for row in self.ctrl.store.search(prefix, self._target_code(), query, limit):
+            rel = row["key"][len(prefix):]
+            path = os.path.join(self._project.folder, rel) if self._project else ""
+            results.append({**row, "file": rel, "path": path})
+        return results
 
     def history(self, xpath: str) -> list[dict]:
         """Earlier versions of an entry, newest first."""

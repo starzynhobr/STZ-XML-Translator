@@ -179,8 +179,18 @@ dados do usuário.
 - A lista do projeto lê o progresso do banco; a tela de tradução mostra o
   histórico da entrada com **Restaurar**.
 
-**Próximas etapas:** busca no projeto inteiro (FTS5), memória de tradução por
-original, exportar/importar o banco do projeto, e deixar de gravar os JSONs.
+**Feito (segunda etapa):**
+- Busca de texto no projeto inteiro (original ou tradução) na tela do projeto;
+  clicar num resultado abre o arquivo já filtrado naquele texto. `LIKE` com
+  índice resolve ~100 mil textos sem precisar de FTS5.
+- Memória de tradução: o painel da entrada sugere como o mesmo original já foi
+  traduzido em qualquer arquivo (confirmadas primeiro); usar uma sugestão fica
+  no histórico como "Memória".
+
+**Decisão:** os checkpoints JSON continuam sendo gravados. São um backup legível
+e portátil, e custam pouco; o banco é a fonte principal.
+
+**Fica para depois:** exportar/importar o banco de um projeto (entra na Fase 6).
 
 ### Análise original
 
@@ -217,6 +227,13 @@ entries_fts  -- FTS5 sobre original + tradução: busca instantânea no jogo tod
   é ela que mais sofre com dezenas de JSONs.
 
 ## Integração com agentes de código (MCP)
+
+**Feito:** `engine/mcp_server.py` (SDK oficial `mcp` 2.x, extra `[mcp]` do
+`pyproject`), 15 ferramentas sobre a mesma `Session`. Como configurar e a lista
+de ferramentas estão em [MCP.md](MCP.md). Traduções do agente entram no
+histórico como "Agente".
+
+### Análise original
 
 Um **servidor MCP** é um programa pequeno que um agente (Claude Code, Codex,
 Cursor...) inicia e que expõe **ferramentas** com nome, descrição e parâmetros.

@@ -24,8 +24,37 @@ export interface Version {
   newText: string
   oldStatus: Status
   newStatus: Status
-  source: 'ai' | 'manual' | 'confirm' | 'import' | 'edit' | 'reset'
+  source: 'ai' | 'manual' | 'confirm' | 'import' | 'edit' | 'reset' | 'memory' | 'agent'
   at: number
+}
+
+/** A translation the same original already has somewhere in the game. */
+export interface Suggestion {
+  translation: string
+  confirmed: boolean
+  uses: number
+}
+
+export interface SearchResult {
+  file: string
+  path: string
+  xpath: string
+  original: string
+  translation: string
+  status: Status
+}
+
+let pendingSearch = ''
+
+/** Hands a search text from the project screen to the bench that opens next. */
+export function setPendingSearch(text: string) {
+  pendingSearch = text
+}
+
+export function takePendingSearch(): string {
+  const text = pendingSearch
+  pendingSearch = ''
+  return text
 }
 
 export interface Provider {

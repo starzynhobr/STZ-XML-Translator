@@ -55,10 +55,22 @@ CREATE TABLE IF NOT EXISTS history (
     at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS history_entry ON history (file_id, lang, xpath, at);
+CREATE INDEX IF NOT EXISTS translation_memory ON translations (lang, original);
 """
 
 # Where a change came from; shown next to each version in the history.
-SOURCES = frozenset({"ai", "manual", "confirm", "import", "reset", "edit"})
+SOURCES = frozenset({"ai", "manual", "confirm", "import", "reset", "edit", "memory", "agent"})
+
+
+def _like(text: str) -> str:
+    """A LIKE pattern that matches ``text`` literally anywhere."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _like_prefix(prefix: str) -> str:
+    escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{escaped}%"
 
 
 @dataclass(frozen=True)
@@ -192,6 +204,41 @@ class TranslationStore:
             {"oldText": o, "newText": n, "oldStatus": os_, "newStatus": ns, "source": s, "at": at}
             for o, n, os_, ns, s, at in rows
         ]
+
+    def search(self, key_prefix: str, lang: str, query: str, limit: int = 200) -> list[dict]:
+        """Entries of every file whose key starts with ``key_prefix`` matching ``query``.
+
+        Matches the original or the translation, case-insensitively for ASCII.
+        """
+        needle = query.strip()
+        if not needle:
+            return []
+        pattern = _like(needle)
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT f.key, t.xpath, t.original, t.translation, t.status FROM translations t"
+                " JOIN files f ON f.id = t.file_id"
+                " WHERE f.key LIKE ? ESCAPE '\\' AND t.lang = ?"
+                " AND (t.original LIKE ? ESCAPE '\\' OR t.translation LIKE ? ESCAPE '\\')"
+                " ORDER BY f.key, t.rowid LIMIT ?",
+                (_like_prefix(key_prefix), lang, pattern, pattern, limit),
+            ).fetchall()
+        return [
+            {"key": key, "xpath": xpath, "original": original, "translation": text, "status": status}
+            for key, xpath, original, text, status in rows
+        ]
+
+    def memory(self, lang: str, original: str, limit: int = 5) -> list[dict]:
+        """Translations already given to this exact original anywhere, confirmed first."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT translation, MAX(status = 'confirmed') AS confirmed, COUNT(*) AS uses"
+                " FROM translations WHERE lang = ? AND original = ? AND translation != ''"
+                " AND status IN ('translated', 'confirmed')"
+                " GROUP BY translation ORDER BY confirmed DESC, uses DESC LIMIT ?",
+                (lang, original, limit),
+            ).fetchall()
+        return [{"translation": text, "confirmed": bool(confirmed), "uses": int(uses)} for text, confirmed, uses in rows]
 
     def progress(self, key: str, lang: str) -> dict | None:
         with self._lock:
