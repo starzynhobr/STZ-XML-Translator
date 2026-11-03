@@ -39,6 +39,8 @@ config.json
 textos_para_traduzir.json
 textos_traduzidos.json
 textos_traduzidos_checkpoint.json
+# Projetos de tradução criados ao rodar em modo de desenvolvimento
+/projects/
 
 # Glossário do usuário
 scripts/glossario.json
@@ -89,3 +91,7 @@ desktop.ini
 
 # Preferências da interface nova (tema, cor), geradas ao rodar em desenvolvimento
 ui_prefs.json
+/translations.db*
+/checkpoints/
+# Registro local do servidor MCP (caminhos absolutos desta máquina)
+/.mcp.json

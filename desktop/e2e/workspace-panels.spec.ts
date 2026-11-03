@@ -68,13 +68,13 @@ test('dropdowns use themed options and keyboard navigation; search has one focus
   expect(outline.outer).toBe('rgb(124, 183, 255)')
 })
 
-test('XML selection stays compact; Escape closes its dropdown first and cancel restores the file', async ({ page }) => {
+test('XML selection stays compact, lists many tags and cancel restores the file', async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 700 })
   const opener = page.getByTitle('Alterar campos')
   await opener.click()
   const panel = page.getByRole('dialog', { name: 'O que vamos traduzir?' })
   await expect(panel).toBeVisible()
-  await expect(panel.getByRole('button', { name: 'description' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(panel.getByRole('radiogroup', { name: 'description' }).getByRole('radio', { name: 'Traduzir' })).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByText('Espere a operação em andamento terminar.', { exact: true })).toBeHidden()
   const bounds = (await panel.boundingBox())!
   expect(bounds.width).toBeLessThan(1024)
@@ -86,13 +86,12 @@ test('XML selection stays compact; Escape closes its dropdown first and cancel r
   page.once('dialog', (dialog) => void dialog.accept(many))
   await panel.getByRole('button', { name: 'Trocar arquivo', exact: true }).click()
   await expect(panel.getByText('many-tags.xml', { exact: true })).toBeVisible()
-  await panel.getByLabel('Tag que se repete').click()
-  await expect(page.getByRole('listbox')).toBeVisible()
-  await page.keyboard.press('End')
-  await expect(page.getByRole('option').last()).toBeInViewport()
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('listbox')).toBeHidden()
-  await expect(panel).toBeVisible()
+  // Twelve text tags, all suggested; the list scrolls inside the panel.
+  const last = panel.getByRole('button', { name: 'Usar tag11' })
+  await expect(last).toHaveAttribute('aria-pressed', 'true')
+  await last.scrollIntoViewIfNeeded()
+  await expect(last).toBeInViewport()
+  expect((await panel.boundingBox())!.height).toBeLessThan(653)
   await page.keyboard.press('Escape')
   await expect(panel).toBeHidden()
   await expect(opener).toBeFocused()

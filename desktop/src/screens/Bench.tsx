@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, FileText, Search, SlidersHorizontal } from 'luc
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button, IconButton, LogoMark, buttonClass, cardClass, cx, eyebrowClass, fieldClass, providerLabel } from '@/components/ui'
-import { api, type EngineState, type Entry, type Status, type Term } from '@/lib/bridge'
+import { api, takePendingSearch, type EngineState, type Entry, type Status, type Suggestion, type Term, type Version } from '@/lib/bridge'
 import { XML_FILTER, pickSavePath } from '@/lib/files'
 import { errorText, useT, type Translate } from '@/lib/i18n'
 import type { MessageKey } from '@/lib/messages'
@@ -62,6 +62,102 @@ function StatusMark({ status, t }: { status: Status; t: Translate }) {
   )
 }
 
+const SOURCE_LABEL: Record<string, MessageKey> = {
+  ai: 'sourceAi',
+  manual: 'sourceManual',
+  confirm: 'sourceConfirm',
+  import: 'sourceImport',
+  memory: 'sourceMemory',
+  agent: 'sourceAgent',
+  edit: 'sourceEdit',
+  reset: 'sourceEdit',
+}
+
+/** How the same original was translated elsewhere in the game (translation memory). */
+function Suggestions({ entry, onUse }: { entry: Entry; onUse: (text: string) => void }) {
+  const t = useT()
+  const [items, setItems] = useState<Suggestion[]>([])
+  useEffect(() => {
+    let stale = false
+    api<{ suggestions: Suggestion[] }>(`/api/entries/suggestions?id=${encodeURIComponent(entry.id)}`).then(
+      (data) => !stale && setItems(data.suggestions),
+      () => !stale && setItems([]),
+    )
+    return () => {
+      stale = true
+    }
+  }, [entry.id, entry.translation])
+  if (!items.length) return null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs text-dim">{t('memoryTitle')}</span>
+      {items.map((item) => (
+        <button
+          key={item.translation}
+          type="button"
+          onClick={() => onUse(item.translation)}
+          className="flex items-baseline gap-2 rounded-[10px] border border-edge px-3 py-2 text-left text-[13px] hover:bg-raised"
+        >
+          <span className="min-w-0 flex-1 text-ink">{item.translation}</span>
+          <span className="shrink-0 text-xs text-dim">
+            {item.confirmed ? t('memoryConfirmed', { n: item.uses }) : t('memoryUses', { n: item.uses })}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Earlier versions of the selected entry, from the engine's SQLite history. */
+function History({ entry, onRestore }: { entry: Entry; onRestore: (text: string) => void }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const [versions, setVersions] = useState<Version[]>([])
+
+  // Refetch when the entry or its saved text changes.
+  useEffect(() => {
+    let stale = false
+    api<{ versions: Version[] }>(`/api/entries/history?id=${encodeURIComponent(entry.id)}`).then(
+      (data) => !stale && setVersions(data.versions),
+      () => !stale && setVersions([]),
+    )
+    return () => {
+      stale = true
+    }
+  }, [entry.id, entry.translation, entry.status])
+
+  if (!versions.length) return null
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-3">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex items-center gap-1.5 self-start text-[13px] text-soft hover:text-ink">
+        {open ? <ChevronUp aria-hidden="true" size={14} /> : <ChevronDown aria-hidden="true" size={14} />}
+        {t('historyTitle', { n: versions.length })}
+      </button>
+      {open && (
+        <ol className="m-0 flex list-none flex-col gap-2 p-0">
+          {versions.map((version, index) => (
+            <li key={index} className="flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-dim">
+                <span className="font-medium text-soft">{t(SOURCE_LABEL[version.source] ?? 'sourceEdit')}</span>
+                <span>{new Date(version.at * 1000).toLocaleString(document.documentElement.lang || undefined)}</span>
+                <span className="flex-1" />
+                {index > 0 && version.newText && version.newText !== entry.translation && (
+                  <button type="button" className="text-soft underline-offset-2 hover:text-ink hover:underline" onClick={() => onRestore(version.newText)}>
+                    {t('restoreVersion')}
+                  </button>
+                )}
+              </div>
+              <div className="text-[13px] text-ink">{version.newText || <span className="text-dim">—</span>}</div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+const fieldKey = (entry: Entry) => (entry.group ? `${entry.group} › ${entry.sourceTag}` : entry.sourceTag)
+
 const contextOf = (entry: Entry) => Object.values(entry.context).find(Boolean) || entry.sourceTag
 
 interface Props {
@@ -78,7 +174,9 @@ interface Props {
 export default function Bench({ state, entries, terms, refresh, onOpenStart, onOpenSettings, onOpenGlossary, onOpenUpdate }: Props) {
   const t = useT()
   const [filter, setFilter] = useState<Filter>('all')
-  const [query, setQuery] = useState('')
+  // A project-wide search result opens its file already filtered to that text.
+  const [query, setQuery] = useState(takePendingSearch)
+  const [field, setField] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const editing = useRef(false)
@@ -101,12 +199,24 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
     const needle = query.trim().toLowerCase()
     return entries.filter((entry) => {
       if (wanted && !wanted.includes(entry.status)) return false
+      if (field && fieldKey(entry) !== field) return false
       if (!needle) return true
       return [entry.original, entry.translation, entry.sourceTag, ...Object.values(entry.context)].some((value) =>
         value.toLowerCase().includes(needle),
       )
     })
-  }, [entries, filter, query])
+  }, [entries, filter, query, field])
+
+  // Tag › field pairs with their counts, in the order they first appear.
+  const fields = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const entry of entries) counts.set(fieldKey(entry), (counts.get(fieldKey(entry)) ?? 0) + 1)
+    return [...counts]
+  }, [entries])
+  const fieldOptions = [
+    { value: '', label: t('allFields', { n: entries.length }) },
+    ...fields.map(([key, n]) => ({ value: key, label: `${key} · ${n}` })),
+  ]
 
   const selected = useMemo(() => entries.find((entry) => entry.id === selectedId) ?? null, [entries, selectedId])
 
@@ -114,6 +224,18 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
   useEffect(() => {
     if (!selected && visible.length) setSelectedId(visible[0].id)
   }, [selected, visible])
+
+  // A new filter, search or field shows its own first entry instead of one it hides.
+  // Only then: an entry that leaves the list after an edit stays in front of the user.
+  const shownIds = useRef(new Set<string>())
+  shownIds.current = new Set(visible.map((entry) => entry.id))
+  useEffect(() => {
+    if (selectedId && !shownIds.current.has(selectedId) && visible.length) {
+      setSelectedId(visible[0].id)
+      scroller.current?.scrollTo({ top: 0 })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, query, field])
 
   // The engine owns the text; mirror it unless the user is mid-edit.
   useEffect(() => {
@@ -166,6 +288,22 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
     })
   }
 
+  // Gemini's models sit in the provider list itself ("Gemini · 3.5 Flash"): one choice, no extra control.
+  const geminiModels = settings.providers.some((p) => p.id === 'Gemini' && p.hasKey) ? settings.models : []
+  const engineOptions = settings.providers.flatMap((provider) =>
+    provider.id === 'Gemini' && geminiModels.length
+      ? geminiModels.map((model) => ({
+          value: `Gemini|${model.label}`,
+          label: `Gemini · ${model.label.replace(/^Gemini\s+/, '')}${model.paid ? ` · ${t('paid')}` : ''}`,
+        }))
+      : [{ value: provider.id, label: providerLabel(provider.id, t) }],
+  )
+  const engineValue = settings.provider === 'Gemini' && geminiModels.length ? `Gemini|${settings.model}` : settings.provider
+  const chooseEngine = (value: string) => {
+    const [provider, model] = value.split('|')
+    void run(() => api('/api/settings', 'PUT', model ? { provider, model } : { provider }))
+  }
+
   const toTranslate = counts.pending + counts.error
   const total = state.total || 1
   const filters: [Filter, MessageKey, number][] = [
@@ -186,37 +324,49 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
 
   return (
     <div className="flex min-h-full flex-col lg:h-full">
-      <header className="flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
-        <LogoMark className="mr-1.5 size-[22px]" />
-        <Button variant="chip" onClick={onOpenStart} title={t('changeFile')}>
-          <FileText aria-hidden="true" size={16} />
+      {/* One row from tablet width up: the file and tag chips give way first. */}
+      <header className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3 md:flex-nowrap">
+        <IconButton label={state.project ? t('backToProject', { name: state.project.name }) : t('backToProjects')} disabled={state.translating} onClick={() => void run(() => api('/api/xml/close', 'POST'))}>
+          <LogoMark className="size-[22px]" />
+        </IconButton>
+        {state.project && <span className="hidden max-w-[160px] shrink-0 truncate text-sm font-semibold 2xl:block" title={state.project.folder}>{state.project.name}</span>}
+        <Button variant="chip" onClick={onOpenStart} title={t('changeFile')} className="min-w-0 shrink">
+          <FileText aria-hidden="true" size={16} className="shrink-0" />
           <span className="max-w-[220px] truncate">{state.file?.name}</span>
         </Button>
         {structure && (
-          <Button variant="chip" onClick={onOpenStart} title={t('editStructure')} className="text-[13px]">
-            <span className="font-mono">
-              {structure.parent} › {structure.targets.join(', ')}
-            </span>
-            {hasContext && <span className="text-dim">{t('contextOf', { tags: structure.contexts.join(', ') })}</span>}
+          <Button variant="chip" onClick={onOpenStart} title={t('editStructure')} className="min-w-0 shrink-[2] text-[13px]">
+            {structure.groups.length > 1 ? (
+              <span className="max-w-[320px] truncate font-mono" title={structure.groups.map((g) => `${g.parent} › ${g.targets.join(', ')}`).join('\n')}>
+                {structure.groups.map((g) => g.parent).join(', ')}
+              </span>
+            ) : (
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-mono">
+                  {structure.parent} › {structure.targets.join(', ')}
+                </span>
+                {hasContext && <span className="hidden truncate text-dim xl:inline">{t('contextOf', { tags: structure.contexts.join(', ') })}</span>}
+              </span>
+            )}
           </Button>
         )}
-        <div className="flex-[1_1_24px]" />
-        <div className="flex items-center gap-2 text-[13px] text-dim">
-          {t('to')}
-          <Select aria-label={t('to')} name="target" className="w-[190px] max-w-full text-sm" value={settings.target} disabled={state.translating} onChange={(value) => void run(() => api('/api/settings', 'PUT', { target: value }))} options={Object.entries(settings.targets).map(([label, value]) => ({ value, label }))} />
+        <div className="hidden flex-[1_1_8px] md:block" />
+        <div className="flex shrink-0 items-center gap-2 text-[13px] text-dim">
+          <span className="hidden xl:inline">{t('to')}</span>
+          <Select aria-label={t('to')} name="target" className="w-[150px] max-w-full text-sm xl:w-[190px]" value={settings.target} disabled={state.translating} onChange={(value) => void run(() => api('/api/settings', 'PUT', { target: value }))} options={Object.entries(settings.targets).map(([label, value]) => ({ value, label }))} />
         </div>
-        <div className="flex items-center gap-2 text-[13px] text-dim">
-          {t('with')}
-          <Select aria-label={t('with')} name="provider" className="w-[230px] max-w-full text-sm" value={settings.provider} disabled={state.translating} onChange={(value) => void run(() => api('/api/settings', 'PUT', { provider: value }))} options={settings.providers.map((provider) => ({ value: provider.id, label: providerLabel(provider.id, t) }))} />
+        <div className="flex shrink-0 items-center gap-2 text-[13px] text-dim">
+          <span className="hidden xl:inline">{t('with')}</span>
+          <Select aria-label={t('with')} name="provider" className="w-[150px] max-w-full text-sm xl:w-[230px]" value={engineValue} disabled={state.translating} onChange={chooseEngine} options={engineOptions} />
         </div>
         {state.translating ? (
-          <Button onClick={() => void run(() => api('/api/translate/cancel', 'POST'))}>{t('cancelTranslation')}</Button>
+          <Button className="shrink-0" onClick={() => void run(() => api('/api/translate/cancel', 'POST'))}>{t('cancelTranslation')}</Button>
         ) : (
-          <Button variant="primary" disabled={toTranslate === 0} onClick={() => void run(() => api('/api/translate', 'POST', {}))}>
+          <Button variant="primary" className="shrink-0" disabled={toTranslate === 0} onClick={() => void run(() => api('/api/translate', 'POST', {}))}>
             {toTranslate ? t('translatePending', { n: toTranslate }) : t('allTranslated')}
           </Button>
         )}
-        <Button onClick={() => void exportXml()} disabled={state.translating}>
+        <Button className="shrink-0" onClick={() => void exportXml()} disabled={state.translating}>
           {t('exportXml')}
         </Button>
         <IconButton label={t('settings')} onClick={onOpenSettings}>
@@ -255,6 +405,9 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
             {t('progress', { c: counts.confirmed, r: counts.translated, p: counts.pending + counts.translating + counts.error })}
           </div>
         </div>
+        {fields.length > 1 && (
+          <Select aria-label={t('fieldFilter')} name="field" className="w-[240px] max-w-full font-mono text-[13px]" value={field} onChange={setField} options={fieldOptions} />
+        )}
         <label className={cx(fieldClass, 'search-field flex flex-[0_1_300px] items-center gap-2 border-edge bg-chip text-dim')}>
           <Search aria-hidden="true" size={16} className="shrink-0" />
           <input
@@ -391,6 +544,24 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
                   </div>
                 )}
               </div>
+
+              <Suggestions
+                entry={selected}
+                onUse={(text) => {
+                  editing.current = false
+                  setDraft(text)
+                  void run(() => api('/api/entries/edit', 'POST', { id: selected.id, text, source: 'memory' }))
+                }}
+              />
+
+              <History
+                entry={selected}
+                onRestore={(text) => {
+                  editing.current = false
+                  setDraft(text)
+                  void run(() => api('/api/entries/edit', 'POST', { id: selected.id, text }))
+                }}
+              />
 
               <div className="mt-auto flex gap-2.5">
                 <Button

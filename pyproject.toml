@@ -1,6 +1,6 @@
 [project]
 name = "stz-xml-translator"
-version = "1.6.0"
+version = "1.7.0"
 requires-python = ">=3.12"
 description = "Desktop tool for translating game XML files using AI translation services"
 dependencies = [
@@ -18,7 +18,12 @@ dependencies = [
 packages = []   # app desktop compilado com Nuitka, não uma biblioteca Python
 
 [project.optional-dependencies]
+# Servidor MCP para agentes de código (python -m engine.mcp_server); fora do app empacotado.
+mcp = [
+    "mcp>=2.3,<3",
+]
 dev = [
+    "mcp>=2.3,<3",
     "httpx>=0.27",
     "nuitka==4.1.2",
     "ordered-set>=4.1.0",

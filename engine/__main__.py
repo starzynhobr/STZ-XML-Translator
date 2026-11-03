@@ -12,6 +12,7 @@ import secrets
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 
 import uvicorn
@@ -37,7 +38,16 @@ def publish_runtime(port: int, token: str) -> Path:
         json.dumps({"pid": os.getpid(), "host": HOST, "port": port, "token": token}),
         encoding="utf-8",
     )
-    os.replace(temp, target)
+    # Windows refuses to replace a file another process has open for a moment
+    # (the shell reading the previous runtime.json): retry briefly.
+    for attempt in range(40):
+        try:
+            os.replace(temp, target)
+            break
+        except PermissionError:
+            if attempt == 39:
+                raise
+            time.sleep(0.05)
     return target
 
 

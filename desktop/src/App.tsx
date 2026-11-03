@@ -7,10 +7,12 @@ import { I18nProvider, useT } from '@/lib/i18n'
 import { HTML_LANG } from '@/lib/messages'
 import Bench from '@/screens/Bench'
 import Glossary from '@/screens/Glossary'
+import Help from '@/screens/Help'
+import { ProjectView, ProjectsHome } from '@/screens/Projects'
 import Settings from '@/screens/Settings'
 import Start from '@/screens/Start'
 
-type Screen = 'main' | 'start' | 'settings'
+type Screen = 'main' | 'start' | 'settings' | 'help'
 
 const systemTheme = () => (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
 
@@ -69,6 +71,8 @@ function RecoveryNotice({ status }: { status: EngineStatus | null }) {
 export default function App() {
   const { state, entries, online, engineStatus, refresh } = useEngine()
   const [screen, setScreen] = useState<Screen>('main')
+  // Picking fields for a file: '' opens the file chooser, a path opens that file.
+  const [picking, setPicking] = useState<string | null>(null)
   const [glossaryOpen, setGlossaryOpen] = useState(false)
   const [terms, setTerms] = useState<Term[]>([])
   const [updateOpen, setUpdateOpen] = useState(false)
@@ -100,19 +104,51 @@ export default function App() {
   }, [update?.available, update?.version, announced])
 
   const openUpdate = () => setUpdateOpen(true)
+  // Help opens from several screens and goes back to the one it came from.
+  const [helpFrom, setHelpFrom] = useState<Screen>('main')
+  const openHelp = (from: Screen) => {
+    setHelpFrom(from)
+    setScreen('help')
+  }
 
   let content
   if (!state || !online) {
     content = <Waiting offline={!online} status={engineStatus} onRetry={() => { void retryEngine().then(refresh) }} />
+  } else if (screen === 'help') {
+    content = <Help locale={state.settings.locale} onBack={() => setScreen(helpFrom)} />
   } else if (screen === 'settings') {
-    content = <Settings state={state} refresh={refresh} onBack={() => setScreen('main')} onOpenUpdate={openUpdate} />
-  } else if (!state.loaded) {
+    content = <Settings state={state} refresh={refresh} onBack={() => setScreen('main')} onOpenUpdate={openUpdate} onOpenHelp={() => openHelp('settings')} />
+  } else if (!state.loaded && picking !== null) {
     content = (
       <Start
+        key={picking}
+        initialPath={picking || undefined}
         state={state}
         refresh={refresh}
-        onLoaded={() => setScreen('main')}
-        onBack={state.loaded ? () => setScreen('main') : null}
+        onLoaded={() => { setPicking(null); setScreen('main') }}
+        onBack={() => setPicking(null)}
+        onOpenSettings={() => setScreen('settings')}
+        onOpenGlossary={() => setGlossaryOpen(true)}
+      />
+    )
+  } else if (!state.loaded && state.project) {
+    content = (
+      <ProjectView
+        state={state}
+        refresh={refresh}
+        onPickFile={setPicking}
+        onOpenHelp={() => openHelp('main')}
+        onOpenSettings={() => setScreen('settings')}
+        onOpenGlossary={() => setGlossaryOpen(true)}
+      />
+    )
+  } else if (!state.loaded) {
+    content = (
+      <ProjectsHome
+        state={state}
+        refresh={refresh}
+        onOpenXml={() => setPicking('')}
+        onOpenHelp={() => openHelp('main')}
         onOpenSettings={() => setScreen('settings')}
         onOpenGlossary={() => setGlossaryOpen(true)}
       />

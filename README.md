@@ -92,6 +92,19 @@ Checks can also be started manually from **Settings → Updates**.
 
 ---
 
+## Coding Agents (MCP)
+
+Coding agents such as Claude Code, Codex or Cursor can drive the translator through its MCP server: open a game project, list pending texts, write translations in batches and export the XML, sharing the app's projects, history and glossary.
+
+```powershell
+pip install -e ".[mcp]"
+python -m engine.mcp_server --app-data
+```
+
+Setup and the list of tools: [docs/MCP.md](docs/MCP.md).
+
+---
+
 ## Building a Standalone Executable
 
 The project ships with a Nuitka build script for Windows:

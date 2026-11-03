@@ -5,12 +5,12 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from core.atomic import write_json_atomic
-from core.extrator import ExtractedEntry, extrair_entradas
+from core.extrator import ExtractedEntry, Group, extrair_entradas
 from core.injetor import injetar_traducoes
 from core.translation_errors import ERROR_MESSAGES, normalize_error
 
@@ -38,6 +38,8 @@ class TranslationEntry:
     container_xpath: str = ""
     context: dict[str, str] = field(default_factory=dict)
     error_code: str = ""
+    # Who made the last change (ai, manual, confirm, import); recorded in the history.
+    source: str = ""
 
     def __post_init__(self) -> None:
         self.status = normalize_status(self.status)
@@ -53,11 +55,13 @@ class TranslationEntry:
     def needs_translation(self) -> bool:
         return self.status in (EntryStatus.PENDING, EntryStatus.ERROR)
 
-    def set_translation(self, text: str, status: str = "translated") -> None:
+    def set_translation(self, text: str, status: str = "translated", source: str = "") -> None:
         state = normalize_status(status)
         if state == EntryStatus.CONFIRMED and not text.strip():
             raise ValueError("Cannot confirm an empty translation")
         self.translation = text
+        if source:
+            self.source = source
         self.status = EntryStatus.PENDING if not text.strip() and state == EntryStatus.TRANSLATED else state
         if self.status != EntryStatus.ERROR:
             self.error_code = ""
@@ -72,7 +76,11 @@ class TranslationProject:
         self.target_tag: str = ""
         self.target_tags: list[str] = []
         self.context_tags: list[str] = []
+        # Every record tag in use; the single-tag fields above mirror the first.
+        self.groups: list[Group] = []
         self.entries: dict[str, TranslationEntry] = {}
+        # Called after every checkpoint save; the controller mirrors progress into SQLite.
+        self.on_save: Callable[[TranslationProject], None] | None = None
 
     # ------------------------------------------------------------------
     # Loading
@@ -111,6 +119,7 @@ class TranslationProject:
         target_tags: Sequence[str],
         context_tags: Sequence[str],
         extracted_entries: Sequence[ExtractedEntry],
+        groups: Sequence[Group] | None = None,
     ) -> None:
         """Install entries prepared outside the UI thread into this project."""
         selected_target_tags = list(target_tags)
@@ -140,6 +149,7 @@ class TranslationProject:
             dict.fromkeys(tag.strip() for tag in selected_context_tags if tag.strip())
         )
         self.target_tag = self.target_tags[0] if self.target_tags else ""
+        self.groups = list(groups) if groups else [Group.of(parent_tag, self.target_tags, self.context_tags)]
 
     # ------------------------------------------------------------------
     # Entry access
@@ -148,10 +158,10 @@ class TranslationProject:
     def get_entry(self, xpath: str) -> TranslationEntry | None:
         return self.entries.get(xpath)
 
-    def set_translation(self, xpath: str, text: str, status: str = "translated") -> None:
+    def set_translation(self, xpath: str, text: str, status: str = "translated", source: str = "") -> None:
         entry = self.entries.get(xpath)
         if entry:
-            entry.set_translation(text, status)
+            entry.set_translation(text, status, source)
 
     def confirm_translation(self, xpath: str, text: str | None = None) -> bool:
         entry = self.entries.get(xpath)
@@ -160,7 +170,7 @@ class TranslationProject:
         value = entry.translation if text is None else text
         if not value.strip():
             return False
-        entry.set_translation(value, EntryStatus.CONFIRMED)
+        entry.set_translation(value, EntryStatus.CONFIRMED, "confirm")
         return True
 
     def mark_translating(self, xpath: str) -> None:
@@ -270,24 +280,44 @@ class TranslationProject:
         parent_tag: str = "",
         target_tags: Sequence[str] = (),
         context_tags: Sequence[str] = (),
+        portable: bool = False,
+        groups: Sequence[Group] = (),
     ) -> str:
         """Return a per-file checkpoint path inside the checkpoints/ folder.
 
         Calls without a tag selection intentionally retain the legacy filename.
         Current callers include a stable selection signature so distinct tag
         configurations for the same XML and language cannot share progress.
+        Portable paths key on the file name instead of its absolute location, so
+        progress survives reinstalling or moving the game; load_checkpoint
+        checks each stored original before applying a translation.
         """
         abs_path = os.path.abspath(xml_path)
         target = re.sub(r"[^a-z0-9_-]+", "_", (target_lang or "").lower()).strip("_")
-        h = hashlib.md5(f"{abs_path}|{target}".encode()).hexdigest()[:8]
+        location = os.path.basename(abs_path).lower() if portable else abs_path
+        h = hashlib.md5(f"{location}|{target}".encode()).hexdigest()[:8]
+        if portable:
+            h = f"p{h}"
         stem = os.path.splitext(os.path.basename(abs_path))[0]
         os.makedirs(folder, exist_ok=True)
         target_suffix = f"_{target}" if target else ""
 
+        if len(groups) == 1:
+            parent_tag, target_tags, context_tags = groups[0].parent, groups[0].targets, groups[0].contexts
         normalized_targets = sorted({tag.strip() for tag in target_tags if tag.strip()})
         normalized_contexts = sorted({tag.strip() for tag in context_tags if tag.strip()})
         selection_suffix = ""
-        if parent_tag.strip() or normalized_targets or normalized_contexts:
+        if len(groups) > 1:
+            # Several record tags: the signature covers the whole set, in any order.
+            payload = json.dumps(
+                sorted(
+                    [g.parent, sorted(set(g.targets)), sorted(set(g.contexts))] for g in groups
+                ),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            selection_suffix = "_g" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+        elif parent_tag.strip() or normalized_targets or normalized_contexts:
             payload = json.dumps(
                 {
                     "parent_tag": parent_tag.strip(),
@@ -310,6 +340,7 @@ class TranslationProject:
                 "version": 2,
                 "entries": {
                     xpath: {
+                        "original": e.original,
                         "translation": e.translation,
                         "status": normalize_status(e.status).value,
                         "error_code": normalize_error(e.error_code) if e.status == EntryStatus.ERROR else "",
@@ -320,9 +351,11 @@ class TranslationProject:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
             # Atomic: a crash mid-save must not corrupt the only copy of the progress.
             write_json_atomic(path, data, indent=4)
-            return True
         except OSError:
             return False
+        if self.on_save:
+            self.on_save(self)
+        return True
 
     def load_checkpoint(self, path: str) -> int:
         """
@@ -348,6 +381,11 @@ class TranslationProject:
         count = 0
         for xpath, record in records.items():
             if xpath not in self.entries:
+                continue
+            # Checkpoints that record the source text only apply where it still
+            # matches, so a newer game build leaves changed entries pending.
+            original = record.get("original") if isinstance(record, dict) else None
+            if isinstance(original, str) and original != self.entries[xpath].original:
                 continue
             translation = record.get("translation") if versioned and isinstance(record, dict) else record
             status = record.get("status", "translated") if versioned and isinstance(record, dict) else "translated"
@@ -433,7 +471,7 @@ class TranslationProject:
         count = 0
         for xpath, translation in data.items():
             if xpath in self.entries and isinstance(translation, str):
-                self.entries[xpath].set_translation(translation)
+                self.entries[xpath].set_translation(translation, source="import")
                 count += 1
         return count
 
@@ -449,7 +487,7 @@ class TranslationProject:
                     xpath = row.get("xpath")
                     translation = row.get("translated_text")
                     if xpath and translation is not None and xpath in self.entries:
-                        self.entries[xpath].set_translation(translation)
+                        self.entries[xpath].set_translation(translation, source="import")
                         count += 1
             return count
         except (OSError, ValueError, csv.Error):

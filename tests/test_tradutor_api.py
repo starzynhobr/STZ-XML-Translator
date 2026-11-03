@@ -326,3 +326,42 @@ class TestTranslateText:
                 translate_text("Gemini", "Hello", {})
 
 
+
+
+@pytest.mark.parametrize(
+    ("base", "paid"),
+    [
+        ("gemini-flash-latest", False),
+        ("gemini-flash-lite-latest", False),
+        ("gemini-3.5-flash", False),
+        ("gemini-3.1-flash-lite", False),
+        ("gemini-2.0-flash", True),
+        ("gemini-pro-latest", True),
+        ("gemini-3.1-pro-preview", True),
+        ("gemini-4-argon", True),  # a new family has no free quota until proven otherwise
+    ],
+)
+def test_free_tier_heuristic(base, paid):
+    from core.tradutor_api import _is_paid_tier
+
+    assert _is_paid_tier(base) is paid
+
+
+def test_gemini_429_keeps_the_quota_ids_and_retry_delay():
+    from unittest.mock import MagicMock, patch
+
+    import requests
+
+    from core.tradutor_api import _gemini_request
+
+    response = MagicMock(status_code=429)
+    response.raise_for_status.side_effect = requests.HTTPError("429")
+    response.json.return_value = {"error": {"message": "You exceeded your current quota.", "details": [
+        {"violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}]},
+        {"retryDelay": "17s"},
+    ]}}
+    with patch("core.tradutor_api.requests.request", return_value=response), pytest.raises(RuntimeError) as raised:
+        _gemini_request("POST", "https://x", "key")
+    text = str(raised.value)
+    assert "[quota: GenerateRequestsPerMinutePerProjectPerModel-FreeTier]" in text
+    assert "Please retry in 17s." in text

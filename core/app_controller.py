@@ -8,8 +8,9 @@ from threading import RLock
 
 from core import key_protection as secrets
 from core.atomic import write_json_atomic
-from core.extrator import ExtractedEntry, XmlDocumentIndex, indexar_xml
-from core.project import TranslationProject
+from core.extrator import ExtractedEntry, Group, XmlDocumentIndex, extract_groups, indexar_xml
+from core.project import EntryStatus, TranslationProject
+from core.store import EntryState, TranslationStore
 from core.translation_worker import TranslationWorker
 
 TRANSLATION_TARGETS: dict[str, dict[str, str]] = {
@@ -23,6 +24,8 @@ TRANSLATION_TARGETS: dict[str, dict[str, str]] = {
     "da": {"code": "da", "deepl": "DA", "label": "Danish", "display": "Dansk", "locale": "da_DK"},
     "tr": {"code": "tr", "deepl": "TR", "label": "Turkish", "display": "Türkçe", "locale": "tr_TR"},
 }
+
+STORE_FILE = "translations.db"
 
 CONFIG_FILE = "config.json"
 PRESETS_FILE = "tag_presets.json"
@@ -191,6 +194,10 @@ class AppController:
     """
 
     def __init__(self) -> None:
+        self.store = TranslationStore(user_data_path(STORE_FILE))
+        # (project id, XML folder, originals folder) while a project is open:
+        # file keys become "<id>:<path inside the folder>", otherwise "file:<name>".
+        self.store_scope: tuple[str, ...] | None = None
         self.project = TranslationProject()
         self._worker: TranslationWorker | None = None
         self._xml_index: XmlDocumentIndex | None = None
@@ -546,6 +553,18 @@ class AppController:
         self.apply_xml_entries(xml_path, parent_tag, target_tags, context_tags, result)
         return True, ""
 
+    def load_xml_groups(self, xml_path: str, groups: Sequence[Group]) -> tuple[bool, str]:
+        """Load several record tags of one XML as a single entry list."""
+        success, index = self._get_xml_index(xml_path)
+        if not success or isinstance(index, str):
+            return False, str(index)
+        ok, result = extract_groups(index, groups)
+        if not ok or isinstance(result, str):
+            return False, str(result)
+        first = groups[0]
+        self.project.load_extracted(xml_path, first.parent, first.targets, first.contexts, result, groups=groups)
+        return True, ""
+
     def extract_xml_entries(
         self,
         xml_path: str,
@@ -627,6 +646,8 @@ class AppController:
                 "batch_count":         i18n.get("log_batch_complete"),
                 "final_done":          i18n.get("log_mass_trans_done"),
                 "context_unsupported": i18n.get("log_context_unsupported"),
+                "dedup":               i18n.get("log_dedup"),
+                "rate_wait":           i18n.get("log_rate_wait"),
             }
         return cfg
 
@@ -635,7 +656,14 @@ class AppController:
         return self.checkpoint_path_for(self.project.xml_path)
 
     def checkpoint_path_for(self, xml_path: str) -> str:
-        """Checkpoint path isolated by XML, target language, and selected tags."""
+        """Checkpoint path isolated by XML name, target language, and selected tags."""
+        return self._selection_checkpoint_path(xml_path, portable=True)
+
+    def location_checkpoint_path_for(self, xml_path: str) -> str:
+        """Return the filename used while checkpoints were tied to the XML location."""
+        return self._selection_checkpoint_path(xml_path, portable=False)
+
+    def _selection_checkpoint_path(self, xml_path: str, *, portable: bool) -> str:
         return self.project.checkpoint_path(
             xml_path,
             self.translation_target.get("code", ""),
@@ -643,6 +671,8 @@ class AppController:
             parent_tag=self.project.parent_tag,
             target_tags=self.project.target_tags,
             context_tags=self.project.context_tags,
+            portable=portable,
+            groups=self.project.groups,
         )
 
     def legacy_checkpoint_path_for(self, xml_path: str) -> str:
@@ -655,17 +685,110 @@ class AppController:
 
     def checkpoint_fallbacks_for(self, xml_path: str) -> list[str]:
         """Return legacy checkpoints in precedence order for controlled migration."""
-        fallbacks = [self.legacy_checkpoint_path_for(xml_path)]
+        fallbacks = [self.location_checkpoint_path_for(xml_path), self.legacy_checkpoint_path_for(xml_path)]
         if self.translation_target.get("code", "") == "pt":
             fallbacks.append(_legacy_cwd_path("textos_traduzidos_checkpoint.json"))
         return fallbacks
 
-    def restore_checkpoint_for(self, xml_path: str) -> int:
-        """Restore current progress, falling back to legacy data only when absent."""
-        return self.project.load_checkpoint_with_fallback(
-            self.checkpoint_path_for(xml_path),
-            self.checkpoint_fallbacks_for(xml_path),
+    # ------------------------------------------------------------------
+    # SQLite progress
+    # ------------------------------------------------------------------
+
+    @property
+    def project(self) -> TranslationProject:
+        return self._project
+
+    @project.setter
+    def project(self, project: TranslationProject) -> None:
+        # Whoever replaces the project, its saves keep reaching the database.
+        project.on_save = self._mirror_to_store
+        self._project = project
+
+    def store_key(self, xml_path: str) -> str:
+        """Stable identity of a file: survives moving or reinstalling the game."""
+        if self.store_scope:
+            project_id, *folders = self.store_scope
+            # The game folder and the kept originals hold the same files.
+            for folder in filter(None, folders):
+                try:
+                    rel = os.path.relpath(os.path.abspath(xml_path), os.path.abspath(folder))
+                except ValueError:
+                    continue
+                if not rel.startswith(".."):
+                    return f"{project_id}:{rel.replace(os.sep, '/')}"
+        return f"file:{os.path.basename(xml_path).lower()}"
+
+    def _target_lang(self) -> str:
+        return self.translation_target.get("code", "")
+
+    def _mirror_to_store(self, project: TranslationProject, default_source: str = "edit") -> None:
+        if not project.xml_path:
+            return
+        self.store.save(
+            self.store_key(project.xml_path),
+            self._target_lang(),
+            (
+                EntryState(e.xpath, e.original, e.translation, str(e.status), e.error_code, e.source)
+                for e in project.entries.values()
+                if e.status != EntryStatus.TRANSLATING
+            ),
+            default_source,
         )
+
+    def _apply_rows(self, key: str, project: TranslationProject | None = None) -> int:
+        target = project or self.project
+        rows = self.store.load(key, self._target_lang())
+        count = 0
+        for xpath, row in rows.items():
+            entry = target.entries.get(xpath)
+            # A newer build changed this text: keep it pending for a fresh translation.
+            if entry is None or row.original != entry.original or not row.translation:
+                continue
+            try:
+                entry.set_translation(row.translation, row.status)
+            except ValueError:
+                continue
+            if entry.status == EntryStatus.ERROR:
+                entry.error_code = row.error_code
+            count += 1
+        target.recover_interrupted()
+        return count
+
+    def entry_history(self, xpath: str) -> list[dict]:
+        if not self.project.xml_path:
+            return []
+        return self.store.history(self.store_key(self.project.xml_path), self._target_lang(), xpath)
+
+    def file_progress(self, xml_path: str, lang_code: str) -> dict | None:
+        return self.store.progress(self.store_key(xml_path), lang_code)
+
+    def restore_checkpoint_for(self, xml_path: str, project: TranslationProject | None = None) -> int:
+        """Restore progress from SQLite; the first time, import it from the JSON checkpoints.
+
+        ``project`` loads into another project than the open one (a background
+        run over a whole game); its JSON checkpoint is found by its own tags.
+        """
+        target = project or self.project
+        key = self.store_key(xml_path)
+        lang = self._target_lang()
+        if self.store.has(key, lang):
+            return self._apply_rows(key, target)
+        loose = f"file:{os.path.basename(xml_path).lower()}"
+        if key != loose and self.store.has(loose, lang):
+            # Translated as a loose file before the project existed.
+            count = self._apply_rows(loose, target)
+        elif project is None:
+            count = target.load_checkpoint_with_fallback(
+                self.checkpoint_path_for(xml_path),
+                self.checkpoint_fallbacks_for(xml_path),
+            )
+        else:
+            count = target.load_checkpoint(
+                target.checkpoint_path(xml_path, lang, user_data_path("checkpoints"), portable=True, groups=target.groups)
+            )
+        if count:
+            self._mirror_to_store(target, "import")
+        return count
 
     # ------------------------------------------------------------------
     # Batch translation

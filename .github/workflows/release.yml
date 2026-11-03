@@ -146,8 +146,10 @@ jobs:
             }
           }
 
+          $notes = "docs/release-notes/${{ github.ref_name }}.md"
+          $notesArgs = if (Test-Path $notes) { @("--notes-file", $notes) } else { @("--generate-notes") }
           gh release create "${{ github.ref_name }}" `
             $assets `
             --title "STZ XML Translator $env:VERSION" `
-            --generate-notes `
+            @notesArgs `
             --latest

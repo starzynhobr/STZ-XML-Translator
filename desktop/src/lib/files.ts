@@ -15,6 +15,15 @@ export async function pickFile(filters: Filter[]): Promise<string | null> {
   return window.prompt('Path of the file to open') || null
 }
 
+export async function pickFolder(): Promise<string | null> {
+  if (isTauri()) {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const chosen = await open({ multiple: false, directory: true })
+    return typeof chosen === 'string' ? chosen : null
+  }
+  return window.prompt('Path of the folder to open') || null
+}
+
 export async function pickSavePath(defaultPath: string, filters: Filter[]): Promise<string | null> {
   if (isTauri()) {
     const { save } = await import('@tauri-apps/plugin-dialog')
@@ -40,6 +49,7 @@ export const XML_FILTER: Filter[] = [{ name: 'XML', extensions: ['xml'] }]
 export const JSON_FILTER: Filter[] = [{ name: 'JSON', extensions: ['json'] }]
 export const CSV_FILTER: Filter[] = [{ name: 'CSV', extensions: ['csv'] }]
 export const BACKUP_FILTER: Filter[] = [{ name: 'JSON / CSV', extensions: ['json', 'csv'] }]
+export const PACKAGE_FILTER: Filter[] = [{ name: 'STZ', extensions: ['stzpack'] }]
 
 export function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`

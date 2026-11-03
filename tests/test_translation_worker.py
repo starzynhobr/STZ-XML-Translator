@@ -25,10 +25,7 @@ def test_gemini_batch_protects_and_restores_glossary_terms():
         context={"dispName": "WHIPLASH"},
     )
     model = MagicMock()
-    model.generate_content.return_value.text = (
-        "[ID: /root/item[1]/bio[1]]\nTEXT TO TRANSLATE:\n"
-        "A STZGLOSSARYTOKEN0END está pronta\n---"
-    )
+    model.generate_content.return_value.text = '[{"id": "t1", "text": "A STZGLOSSARYTOKEN0END está pronta"}]'
 
     with (
         patch("core.translation_worker.get_gemini_model", return_value=model),
@@ -43,7 +40,9 @@ def test_gemini_batch_protects_and_restores_glossary_terms():
     assert "The STZGLOSSARYTOKEN0END is ready" in prompt
     assert "Translate all surrounding text" in prompt
     assert '"dispName": "WHIPLASH"' in prompt
-    assert "Do not translate or return" in prompt
+    assert "never translate or return them" in prompt
+    # The answer is constrained to [{"id", "text"}] instead of parsed from separators.
+    assert model.generate_content.call_args.kwargs["response_schema"]["type"] == "ARRAY"
     assert result == {"/root/item[1]/bio[1]": "A Espada está pronta"}
 
 
