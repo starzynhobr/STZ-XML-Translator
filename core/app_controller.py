@@ -646,6 +646,8 @@ class AppController:
                 "batch_count":         i18n.get("log_batch_complete"),
                 "final_done":          i18n.get("log_mass_trans_done"),
                 "context_unsupported": i18n.get("log_context_unsupported"),
+                "dedup":               i18n.get("log_dedup"),
+                "rate_wait":           i18n.get("log_rate_wait"),
             }
         return cfg
 

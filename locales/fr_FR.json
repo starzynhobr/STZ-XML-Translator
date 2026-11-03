@@ -202,6 +202,8 @@
   "log_ollama_mini_failed": "Mini-lot échoué — tentative un par un.",
   "log_api_error_prefix": "ERREUR API : {exc}",
   "log_batch_complete": "Lot terminé. Total traduit : {done}",
+  "log_dedup": "{unique} textes distincts pour {total} entrées : chaque texte répété est traduit une fois.",
+  "log_rate_wait": "Limite par minute atteinte : attente de {s} s et ralentissement.",
   "log_context_unsupported": "AVERTISSEMENT : {provider} ne propose pas de contexte séparé ; les champs de contexte seront ignorés pour cette exécution.",
   "google_translate_free_note": "Sans clé — utilise Google Traduction gratuit",
   "google_translate_quality_warning": "⚠ Traduction automatique — peut ne pas sonner naturel",

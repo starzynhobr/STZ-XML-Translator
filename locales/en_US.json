@@ -202,6 +202,8 @@
   "log_ollama_mini_failed": "Mini-batch failed — trying one by one.",
   "log_api_error_prefix": "API ERROR: {exc}",
   "log_batch_complete": "Batch done. Total translated: {done}",
+  "log_dedup": "{unique} distinct texts for {total} entries: each repeated text is translated once.",
+  "log_rate_wait": "Per-minute limit reached: waiting {s} s and slowing down.",
   "log_context_unsupported": "WARNING: {provider} does not offer separate context; context fields will be ignored for this run.",
   "google_translate_free_note": "No key needed — uses free Google Translate",
   "google_translate_quality_warning": "⚠ Machine translation — may not sound natural",

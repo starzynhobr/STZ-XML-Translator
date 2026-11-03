@@ -125,11 +125,17 @@ class _GeminiWrapper:
         self._model_name = model_name
         self._api_key = api_key
 
-    def generate_content(self, prompt: str):
+    def generate_content(self, prompt: str, response_schema: dict | None = None, timeout: int = 120):
+        """Generate text; with ``response_schema`` the model must answer JSON in that shape."""
         model_name = _normalize_gemini_model_name(self._model_name)
         url = f"{GEMINI_API_BASE}/{model_name}:generateContent"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        response = _gemini_request("POST", url, self._api_key, json=payload, timeout=120)
+        payload: dict = {"contents": [{"parts": [{"text": prompt}]}]}
+        if response_schema is not None:
+            payload["generationConfig"] = {
+                "responseMimeType": "application/json",
+                "responseSchema": response_schema,
+            }
+        response = _gemini_request("POST", url, self._api_key, json=payload, timeout=timeout)
         parts = (
             response.get("candidates", [{}])[0]
             .get("content", {})
@@ -222,7 +228,9 @@ def list_gemini_models(api_key: str) -> dict[str, tuple[str, int, bool]]:
     import re
 
     payload = _gemini_request("GET", f"{GEMINI_API_BASE}/models", api_key, timeout=30)
-    _SKIP_KW = {"tts", "audio", "image", "embedding", "robotics", "computer", "live"}
+    # Models that do not write text: image, speech, transcription, tool-only variants.
+    _SKIP_KW = {"tts", "audio", "image", "embedding", "robotics", "computer", "live",
+                "banana", "transcribe", "customtools", "omni"}
 
     entries: list[tuple[int, int, int, int, str, str, int, bool]] = []
 
@@ -263,15 +271,15 @@ def _format_model_label(model_name: str) -> str:
 
 def _is_paid_tier(base: str) -> bool:
     """
-    Heuristic based on empirical free-tier testing (2026-06).
-    Paid: any Pro model, gemini-2.0-flash, gemini-2.0-flash-lite.
-    Everything else (flash 2.5+, flash-latest, flash-lite-latest) is free.
+    Heuristic based on empirical free-tier testing (2026-11).
+    Only Flash and Flash-Lite models (2.5 and later, and their -latest aliases)
+    have free-tier quota. Pro, gemini-2.0-flash* and any other family, such as
+    a new top model like gemini-4-argon, answer 429 on a free key: they count as
+    paid until proven otherwise.
     """
-    if "pro" in base:
-        return True
     if base in {"gemini-2.0-flash", "gemini-2.0-flash-lite"}:
         return True
-    return False
+    return "flash" not in base or "pro" in base
 
 
 def _mirror_case(matched: str, replacement: str) -> str:
@@ -438,6 +446,17 @@ def _ollama_json(payload: dict) -> dict:
     return result
 
 
+# Shared by every AI prompt: what makes a game string usable in the game.
+LOCALIZATION_RULES = (
+    "Rules:\n"
+    "- Keep markup, placeholders and escapes exactly as they are: <b>...</b>, {NAME}, %s, %d, \\n and line breaks.\n"
+    "- Keep the capitalization style: UPPERCASE text stays uppercase and keeps its accents (e.g. MÍSTICA, AÇÃO).\n"
+    "- Names of characters, teams, places and items: use the official localized name when it is well known "
+    "in the target language; otherwise keep the original. Translate the same name the same way every time.\n"
+    "- Natural, concise game text. No explanations, notes or extra quotes.\n"
+)
+
+
 def provider_supports_context(service: str) -> bool:
     """Return whether a provider has a safe, separate way to receive context."""
     return service in CONTEXT_CAPABLE_SERVICES
@@ -506,6 +525,7 @@ class GeminiService(TranslationService):
         protected_text, glossary_tokens = protect_glossary_for_ai(text, target_lang)
         prompt = (
             "Act as a game localization specialist.\n"
+            f"{LOCALIZATION_RULES}"
             f"{context_block}"
             f"{glossary_ai_instruction(glossary_tokens)}"
             f"Translate the following text to {target_label}. "
@@ -568,10 +588,10 @@ class OllamaService(TranslationService):
 
         prompt = (
             "[INST]Act as a game localization specialist.\n"
+            f"{LOCALIZATION_RULES}"
             f"{context_block}"
             f"{glossary_ai_instruction(glossary_tokens)}"
-            f"Translate the JSON value below to {target_label}. Keep proper nouns and "
-            "character names that should not be translated. Keep the key exactly the same. "
+            f"Translate the JSON value below to {target_label}. Keep the key exactly the same. "
             "Respond with JSON only.\n\n"
             "Input:\n"
             f"{input_json}\n\n"
@@ -612,12 +632,12 @@ def translate_batch_ollama(entries, config: dict) -> "dict[str, str] | None":
 
     prompt = (
         "[INST]Act as a game localization specialist.\n"
+        f"{LOCALIZATION_RULES}"
         f"{context_block}"
         f"{glossary_ai_instruction(all_tokens)}"
         f"Translate every string in the \"inputs\" array to {target_label}. "
         "For each object, translate only its \"text\" value; \"field\" and \"context\" "
         "are reference data and must not appear in the translation. "
-        "Keep proper nouns and character names that should not be translated. "
         "Return JSON with a single key \"translations\" containing the translated "
         f"strings as an array in the same order.\nInput: {input_json}[/INST]"
     )

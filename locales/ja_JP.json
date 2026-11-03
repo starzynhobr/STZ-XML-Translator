@@ -202,6 +202,8 @@
   "log_ollama_mini_failed": "ミニバッチ失敗 — 1件ずつ処理します。",
   "log_api_error_prefix": "APIエラー: {exc}",
   "log_batch_complete": "バッチ完了。翻訳済み合計: {done}",
+  "log_dedup": "{total} 件中、異なるテキストは {unique} 件。重複は 1 回だけ翻訳します。",
+  "log_rate_wait": "1 分あたりの上限に達しました。{s} 秒待ってペースを落とします。",
   "log_context_unsupported": "警告: {provider} は個別のコンテキストに対応していないため、この実行ではコンテキスト項目を無視します。",
   "google_translate_free_note": "キー不要 — 無料のGoogle翻訳を使用",
   "google_translate_quality_warning": "⚠ 機械翻訳 — 自然に聞こえない場合があります",

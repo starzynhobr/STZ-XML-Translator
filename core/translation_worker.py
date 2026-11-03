@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import re
 import threading
 from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 
+from core import gemini_batch
 from core.project import TranslationProject
 from core.tradutor_api import (
-    build_reference_context,
+    LOCALIZATION_RULES,
     get_gemini_model,
     glossary_ai_instruction,
     protect_glossary_for_ai,
@@ -17,6 +18,11 @@ from core.tradutor_api import (
     translate_text,
 )
 from core.translation_errors import ERROR_MESSAGES, classify_error
+
+# Gemini free keys allow 5-15 requests per minute depending on the model; 10 with
+# 3 in flight stays under that and still overlaps the slow part (the answer).
+GEMINI_PARALLEL = 3
+GEMINI_RPM = 10
 
 
 class TranslationWorker:
@@ -60,7 +66,11 @@ class TranslationWorker:
         self._on_batch_start = on_batch_start
         self._cancel_event = threading.Event()
         self._thread: threading.Thread | None = None
-        self._batch_error_code = "batch_failed"
+        # Per pool thread: the error of the request that thread just made.
+        self._local = threading.local()
+        self._gate: gemini_batch.RateGate | None = None
+        # Names translated before this pass: fixed references for the texts that mention them.
+        self._names: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Control
@@ -108,6 +118,104 @@ class TranslationWorker:
     # Batch translation (background thread)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Gemini: distinct texts, sized requests, several in flight
+    # ------------------------------------------------------------------
+
+    def _name_memory(self) -> dict[str, str]:
+        """Names already translated in this file, from this run or an earlier one."""
+        return {
+            entry.original: entry.translation
+            for entry in self._project.entries.values()
+            if gemini_batch.is_name_field(entry.source_tag)
+            and entry.translation.strip()
+            and entry.status in ("translated", "confirmed")
+        }
+
+    def _run_gemini(self, pending: list) -> None:
+        units = gemini_batch.dedupe(pending)
+        if len(units) < len(pending):
+            self._on_log(self._s("dedup", unique=len(units), total=len(pending)))
+        self._gate = gemini_batch.RateGate(float(self._config.get("gemini_rpm", GEMINI_RPM)))
+        names = [unit for unit in units if gemini_batch.is_name_field(unit.entry.source_tag)]
+        rest = [unit for unit in units if not gemini_batch.is_name_field(unit.entry.source_tag)]
+
+        # Names first: the texts that mention them then get the same translation as a reference.
+        stopped = self._run_chunks(names) if names else ""
+        if not stopped and not self._cancel_event.is_set() and rest:
+            self._names = self._name_memory()
+            stopped = self._run_chunks(rest)
+        self._names = {}
+
+        self._project.recover_interrupted()
+        if self._cancel_event.is_set():
+            self._on_log(self._s("cancelled"))
+        elif stopped:
+            self._on_log(self._s("api_error", exc=ERROR_MESSAGES[stopped]))
+            self._on_log(self._s("batch_failed"))
+        else:
+            self._on_log(self._s("final_done"))
+        self._on_done()
+
+    def _run_chunks(self, units: list[gemini_batch.Unit]) -> str:
+        """Translate units with up to N requests in flight; returns the error that stopped it, if any."""
+        project = self._project
+        parallel = max(1, int(self._config.get("gemini_parallel", GEMINI_PARALLEL)))
+
+        def request(chunk: list[gemini_batch.Unit]):
+            results = self._translate_batch_gemini([unit.entry for unit in chunk])
+            if results is None:
+                return None, self._local.error
+            return {unit.id: results.get(unit.entry.xpath, "") for unit in chunk}, ""
+
+        queue = gemini_batch.pack(units, gemini_batch.MAX_CHARS, gemini_batch.MAX_ITEMS)
+        running: dict[Future, list[gemini_batch.Unit]] = {}
+        stopped = ""
+        with ThreadPoolExecutor(max_workers=parallel) as pool:
+            while queue or running:
+                # Keep up to `parallel` requests in flight; each marks its entries as it leaves.
+                while queue and len(running) < parallel and not stopped and not self._cancel_event.is_set():
+                    chunk = queue.pop(0)
+                    xpaths = [xpath for unit in chunk for xpath in unit.xpaths]
+                    for xpath in xpaths:
+                        project.mark_translating(xpath)
+                    if self._on_batch_start:
+                        self._on_batch_start(xpaths)
+                    self._on_log(self._s("sending_gemini", n=len(xpaths)))
+                    running[pool.submit(request, chunk)] = chunk
+                if not running:
+                    break
+                done, _ = wait(running, return_when=FIRST_COMPLETED)
+                for future in done:
+                    chunk = running.pop(future)
+                    results, error = future.result()
+                    if results is None:
+                        # A failed request leaves its entries as errors: "translate pending" retries them.
+                        for unit in chunk:
+                            for xpath in unit.xpaths:
+                                project.mark_error(xpath, error if error != "cancelled" else "batch_failed")
+                        if error != "cancelled":
+                            stopped = stopped or error
+                    else:
+                        skipped = 0
+                        for unit in chunk:
+                            text = results.get(unit.id, "")
+                            for xpath in unit.xpaths:
+                                if text.strip():
+                                    project.set_translation(xpath, text, status="done", source="ai")
+                                    self._on_entry_translated(xpath, text)
+                                else:
+                                    project.mark_error(xpath, "missing_result")
+                                    skipped += 1
+                        if skipped:
+                            self._on_log(self._s("items_skipped", n=skipped))
+                    # Every finished request is saved at once: an interruption loses at most what is in flight.
+                    project.save_checkpoint(self._checkpoint_file)
+                    if results is not None:
+                        finished, _ = project.stats()
+                        self._on_log(self._s("batch_count", done=finished))
+        return stopped
+
     def _s(self, key: str, **kwargs) -> str:
         """Return a translated log string from config, falling back to Portuguese."""
         _fallbacks = {
@@ -124,6 +232,8 @@ class TranslationWorker:
             "api_error":          "ERRO na API: {exc}",
             "batch_count":        "Lote concluído. Total traduzido: {done}",
             "final_done":         "Tradução em lote finalizada.",
+            "dedup":              "{unique} textos diferentes para {total} entradas: cada repetido é traduzido uma vez.",
+            "rate_wait":          "Limite por minuto atingido: aguardando {s} s e reduzindo o ritmo.",
             "context_unsupported": (
                 "AVISO: {provider} não oferece contexto separado; "
                 "os campos de contexto serão ignorados nesta execução."
@@ -188,6 +298,10 @@ class TranslationWorker:
         if any(entry.context for entry in pending) and not provider_supports_context(service):
             self._on_log(self._s("context_unsupported", provider=service))
 
+        if service == "Gemini":
+            self._run_gemini(pending)
+            return
+
         for i in range(0, total, self.BATCH_SIZE):
             if self._cancel_event.is_set():
                 self._on_log(self._s("cancelled"))
@@ -199,41 +313,7 @@ class TranslationWorker:
             for entry in batch:
                 project.mark_translating(entry.xpath)
 
-            if service == "Gemini":
-                if self._on_batch_start:
-                    self._on_batch_start([e.xpath for e in batch])
-                self._on_log(self._s("sending_gemini", n=len(batch)))
-
-                self._batch_error_code = "batch_failed"
-                results = self._translate_batch_gemini(batch)
-
-                # A cancel that arrives while the request is in flight still keeps
-                # the answer: it was already paid for. The loop stops afterwards.
-                if results is None and self._cancel_event.is_set():
-                    self._on_log(self._s("cancelled"))
-                    self._on_done()
-                    return
-
-                if results is None:
-                    for entry in batch:
-                        project.mark_error(entry.xpath, self._batch_error_code)
-                    self._on_log(self._s("batch_failed"))
-                    break
-
-                skipped = 0
-                for entry in batch:
-                    text = results.get(entry.xpath)
-                    if text and text.strip():
-                        project.set_translation(entry.xpath, text, status="done", source="ai")
-                        self._on_entry_translated(entry.xpath, text)
-                    else:
-                        project.mark_error(entry.xpath, "missing_result")
-                        skipped += 1
-
-                if skipped:
-                    self._on_log(self._s("items_skipped", n=skipped))
-
-            elif service == "Google Translate (Free)":
+            if service == "Google Translate (Free)":
                 if self._on_batch_start:
                     self._on_batch_start([e.xpath for e in batch])
                 self._on_log(self._s("sending_google", n=len(batch)))
@@ -339,52 +419,59 @@ class TranslationWorker:
         self._on_done()
 
     def _translate_batch_gemini(self, batch) -> dict[str, str] | None:
-        """Gemini: sends all entries in one prompt block for efficiency."""
-        try:
-            model = get_gemini_model(
-                self._config.get("model", "models/gemini-flash-lite-latest"),
-                api_key=self._config.get("api_key", ""),
-            )
-            target_label = self._config.get("target_label", "Portuguese (Brazil)")
-            target_lang = self._config.get("target_lang", "pt")
-            prepared_entries = []
-            glossary_tokens_by_xpath: dict[str, dict[str, str]] = {}
-            for entry in batch:
-                prepared, glossary_tokens = protect_glossary_for_ai(
-                    entry.original, target_lang
+        """One Gemini request for these entries (runs on a pool thread).
+
+        Returns {xpath: translation}, or None with the error code left in
+        ``self._local.error``. Rate limits are retried after the wait the API
+        asks for, slowing the shared pace down for every request.
+        """
+        self._local.error = "batch_failed"
+        gate = self._gate or gemini_batch.RateGate(GEMINI_RPM)
+        target_lang = self._config.get("target_lang", "pt")
+        ids = {f"t{index}": entry for index, entry in enumerate(batch, start=1)}
+        tokens_by_id: dict[str, dict[str, str]] = {}
+        items = []
+        for unit_id, entry in ids.items():
+            protected, tokens = protect_glossary_for_ai(entry.original, target_lang)
+            tokens_by_id[unit_id] = tokens
+            item = {"id": unit_id, "text": protected, "field": entry.source_tag}
+            if entry.context:
+                item["context"] = dict(entry.context)
+            items.append(item)
+        all_tokens = {token: value for tokens in tokens_by_id.values() for token, value in tokens.items()}
+        general = (self._config.get("translation_context") or "").strip()
+        rules = LOCALIZATION_RULES + (f"Content/theme: {general}\n" if general else "") + glossary_ai_instruction(all_tokens)
+        own = {entry.original for entry in batch}
+        hints = [pair for pair in gemini_batch.names_in([e.original for e in batch], self._names) if pair[0] not in own]
+        if hints:
+            rules += "Names already used in this translation; write them exactly like this: " + "; ".join(
+                f'"{original}" = "{translation}"' for original, translation in hints
+            ) + "\n"
+        prompt = gemini_batch.build_prompt(items, rules, self._config.get("target_label", "Portuguese (Brazil)"))
+        error: Exception | None = None
+        for _attempt in range(gemini_batch.RETRIES):
+            if not gate.wait(self._cancel_event.is_set):
+                self._local.error = "cancelled"
+                return None
+            try:
+                model = get_gemini_model(
+                    self._config.get("model", "models/gemini-flash-lite-latest"),
+                    api_key=self._config.get("api_key", ""),
                 )
-                entry_config = self._config_for_entry(entry)
-                reference_context = build_reference_context(entry_config)
-                instruction = glossary_ai_instruction(glossary_tokens)
-                prepared_entries.append(
-                    (entry.xpath, prepared, reference_context, instruction)
-                )
-                glossary_tokens_by_xpath[entry.xpath] = glossary_tokens
-            batch_text = "".join(
-                f"[ID: {xpath}]\n{reference_context}{instruction}"
-                f"TEXT TO TRANSLATE:\n{text}\n---\n"
-                for xpath, text, reference_context, instruction in prepared_entries
-            )
-            prompt = (
-                "Act as a game localization specialist.\n"
-                "Each entry below contains an ID, optional reference context, and text.\n"
-                "Translate only the text after TEXT TO TRANSLATE. Do not translate or return "
-                "the reference context.\n"
-                f"Translate every entry to {target_label}. Keep proper nouns and character names that should not be translated. Keep the IDs and separators exactly as provided.\n\n"
-                "---BEGIN BLOCK---\n"
-                f"{batch_text}\n"
-                "---END BLOCK---\n"
-            )
-            response = model.generate_content(prompt)
-            pairs = re.findall(r"\[ID: (.*?)\]\n(.*?)\n---", response.text, re.DOTALL)
-            return {
-                xpath.strip(): restore_glossary_tokens(
-                    re.sub(r"^TEXT TO TRANSLATE:\s*", "", text.strip()),
-                    glossary_tokens_by_xpath.get(xpath.strip(), {}),
-                )
-                for xpath, text in pairs
-            }
-        except Exception as exc:
-            self._batch_error_code = classify_error(exc)
-            self._on_log(self._s("api_error", exc=ERROR_MESSAGES[self._batch_error_code]))
-            return None
+                response = model.generate_content(prompt, response_schema=gemini_batch.RESPONSE_SCHEMA)
+                results = gemini_batch.parse(response.text)
+                return {
+                    ids[unit_id].xpath: restore_glossary_tokens(text.strip(), tokens_by_id[unit_id])
+                    for unit_id, text in results.items()
+                    if unit_id in ids
+                }
+            except Exception as exc:  # classified below; the raw text never reaches the UI
+                error = exc
+                wait_for = None if gemini_batch.daily_quota_exhausted(exc) else gemini_batch.retry_after(exc)
+                if wait_for is None:
+                    break
+                gate.slow_down(wait_for)
+                self._on_log(self._s("rate_wait", s=round(wait_for)))
+        self._local.error = classify_error(error) if error else "batch_failed"
+        self._on_log(self._s("api_error", exc=ERROR_MESSAGES[self._local.error]))
+        return None

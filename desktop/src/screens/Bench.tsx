@@ -288,6 +288,22 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
     })
   }
 
+  // Gemini's models sit in the provider list itself ("Gemini · 3.5 Flash"): one choice, no extra control.
+  const geminiModels = settings.providers.some((p) => p.id === 'Gemini' && p.hasKey) ? settings.models : []
+  const engineOptions = settings.providers.flatMap((provider) =>
+    provider.id === 'Gemini' && geminiModels.length
+      ? geminiModels.map((model) => ({
+          value: `Gemini|${model.label}`,
+          label: `Gemini · ${model.label.replace(/^Gemini\s+/, '')}${model.paid ? ` · ${t('paid')}` : ''}`,
+        }))
+      : [{ value: provider.id, label: providerLabel(provider.id, t) }],
+  )
+  const engineValue = settings.provider === 'Gemini' && geminiModels.length ? `Gemini|${settings.model}` : settings.provider
+  const chooseEngine = (value: string) => {
+    const [provider, model] = value.split('|')
+    void run(() => api('/api/settings', 'PUT', model ? { provider, model } : { provider }))
+  }
+
   const toTranslate = counts.pending + counts.error
   const total = state.total || 1
   const filters: [Filter, MessageKey, number][] = [
@@ -341,7 +357,7 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
         </div>
         <div className="flex shrink-0 items-center gap-2 text-[13px] text-dim">
           <span className="hidden xl:inline">{t('with')}</span>
-          <Select aria-label={t('with')} name="provider" className="w-[150px] max-w-full text-sm xl:w-[230px]" value={settings.provider} disabled={state.translating} onChange={(value) => void run(() => api('/api/settings', 'PUT', { provider: value }))} options={settings.providers.map((provider) => ({ value: provider.id, label: providerLabel(provider.id, t) }))} />
+          <Select aria-label={t('with')} name="provider" className="w-[150px] max-w-full text-sm xl:w-[230px]" value={engineValue} disabled={state.translating} onChange={chooseEngine} options={engineOptions} />
         </div>
         {state.translating ? (
           <Button className="shrink-0" onClick={() => void run(() => api('/api/translate/cancel', 'POST'))}>{t('cancelTranslation')}</Button>

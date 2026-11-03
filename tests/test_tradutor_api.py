@@ -326,3 +326,22 @@ class TestTranslateText:
                 translate_text("Gemini", "Hello", {})
 
 
+
+
+@pytest.mark.parametrize(
+    ("base", "paid"),
+    [
+        ("gemini-flash-latest", False),
+        ("gemini-flash-lite-latest", False),
+        ("gemini-3.5-flash", False),
+        ("gemini-3.1-flash-lite", False),
+        ("gemini-2.0-flash", True),
+        ("gemini-pro-latest", True),
+        ("gemini-3.1-pro-preview", True),
+        ("gemini-4-argon", True),  # a new family has no free quota until proven otherwise
+    ],
+)
+def test_free_tier_heuristic(base, paid):
+    from core.tradutor_api import _is_paid_tier
+
+    assert _is_paid_tier(base) is paid
