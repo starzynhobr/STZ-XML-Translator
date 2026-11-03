@@ -96,7 +96,7 @@ deixa de ser o caminho absoluto e passa a ser
       o jogo é reinstalado.
 - [x] Campos lembrados por arquivo: na segunda vez o arquivo abre direto na tradução.
 - [ ] Cópia dos originais para `source/` (snapshot da build), necessária para a Fase 4.
-- [ ] Escolher o idioma ao criar o projeto (hoje usa o idioma de destino atual).
+- [x] Escolher o idioma ao criar o projeto e trocar na tela do projeto.
 
 **Viabilidade:** alta. O engine (`engine/session.py`) já centraliza estado e persistência,
 e a UI Tauri ganha uma tela nova. O formato SQLite e o padrão de histórico podem

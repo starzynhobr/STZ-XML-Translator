@@ -102,7 +102,7 @@ function History({ entry, onRestore }: { entry: Entry; onRestore: (text: string)
             <li key={index} className="flex flex-col gap-1 rounded-[10px] border border-line px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-dim">
                 <span className="font-medium text-soft">{t(SOURCE_LABEL[version.source] ?? 'sourceEdit')}</span>
-                <span>{new Date(version.at * 1000).toLocaleString()}</span>
+                <span>{new Date(version.at * 1000).toLocaleString(document.documentElement.lang || undefined)}</span>
                 <span className="flex-1" />
                 {index > 0 && version.newText && version.newText !== entry.translation && (
                   <button type="button" className="text-soft underline-offset-2 hover:text-ink hover:underline" onClick={() => onRestore(version.newText)}>
