@@ -12,8 +12,20 @@ export interface Entry {
   translation: string
   status: Status
   sourceTag: string
+  /** Record tag the entry belongs to, e.g. "villain". */
+  group: string
   context: Record<string, string>
   error: string
+}
+
+/** One saved change of an entry: what it became and where the change came from. */
+export interface Version {
+  oldText: string
+  newText: string
+  oldStatus: Status
+  newStatus: Status
+  source: 'ai' | 'manual' | 'confirm' | 'import' | 'edit' | 'reset'
+  at: number
 }
 
 export interface Provider {
@@ -66,7 +78,8 @@ export interface EngineState {
   rev: number
   file: { path: string; name: string } | null
   parents: string[]
-  structure: { parent: string; targets: string[]; contexts: string[] } | null
+  structure: { parent: string; targets: string[]; contexts: string[]; groups: Group[] } | null
+  project: { id: string; name: string; folder: string } | null
   loaded: boolean
   total: number
   counts: Record<Status, number>
@@ -92,6 +105,39 @@ export interface Preview {
   sample: { tag: string; attributes: Record<string, string>; fields: { tag: string; text: string }[] }[]
 }
 
+/** One record tag and its fields; a file's selection is a list of these. */
+export interface Group {
+  parent: string
+  targets: string[]
+  contexts: string[]
+}
+
+export type FieldRole = 'translate' | 'context' | 'ignore'
+export type FieldKind = 'text' | 'name' | 'id' | 'number' | 'flag' | 'path' | 'empty' | 'code'
+
+export interface FieldPlan {
+  tag: string
+  kind: FieldKind
+  count: number
+  sample: string
+  role: FieldRole
+  technical: boolean
+}
+
+export interface TagPlan {
+  tag: string
+  records: number
+  texts: number
+  selected: boolean
+  useful: boolean
+  fields: FieldPlan[]
+}
+
+export interface Analysis {
+  profile: { id: string; name: string }
+  tags: TagPlan[]
+}
+
 export interface Preset {
   id: number
   label: string
@@ -99,6 +145,45 @@ export interface Preset {
   targets: string[]
   contexts: string[]
   file: string
+}
+
+export interface Progress {
+  total: number
+  translated: number
+  confirmed: number
+}
+
+export interface ProjectSummary {
+  id: string
+  name: string
+  folder: string
+  gameRoot: string
+  profile: string
+  folderExists: boolean
+  target: string
+  lastFile: string
+  updatedAt: number
+  summary: { files: number; started: number; total: number; translated: number; confirmed: number }
+}
+
+/** What the engine found from a folder the user picked. */
+export interface GameDetection {
+  root: string
+  xmlFolder: string
+  name: string
+  count: number
+}
+
+export interface ProjectFile {
+  path: string
+  name: string
+  size: number
+  groups: Group[]
+  progress: Progress | null
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  files: ProjectFile[]
 }
 
 export interface Term {

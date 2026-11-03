@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import threading
 import time
 from collections.abc import Sequence
@@ -19,9 +20,11 @@ import requests
 from core import updater
 from core.app_controller import PROVIDER_URLS, AppController, user_data_dir, user_data_path
 from core.atomic import write_json_atomic
-from core.extrator import XmlDocumentIndex, _local_name
+from core.extrator import Group, XmlDocumentIndex, _local_name
+from core.game_profiles import GENERIC, GameProfile, TagPlan, plan, profile_for
 from core.i18n import I18nManager
-from core.project import EntryStatus
+from core.project import EntryStatus, TranslationProject
+from core.workspace import Project, ProjectStore, detect_game, file_rows, summarize
 from core.tradutor_api import carregar_glossario, glossary_filename, list_gemini_models
 from core.version import app_version
 
@@ -44,6 +47,15 @@ DEFAULT_MODELS: dict[str, tuple[str, int, bool]] = {
     "Gemini Flash Lite Latest": ("models/gemini-flash-lite-latest", 60, False),
     "Gemini Flash Latest": ("models/gemini-flash-latest", 60, False),
 }
+
+
+_LAST_SEGMENT = re.compile(r"(?:\*\[local-name\(\)='([^']+)'\]|([^/\[]+))(?:\[\d+\])?$")
+
+
+def _record_tag(container_xpath: str) -> str:
+    """The record tag an entry belongs to: the last step of its container's XPath."""
+    match = _LAST_SEGMENT.search(container_xpath or "")
+    return (match.group(1) or match.group(2)) if match else ""
 
 
 class SessionError(Exception):
@@ -75,6 +87,11 @@ class Session:
         self._translating = False
         self._single: set[str] = set()
         self._log: list[dict] = []
+
+        self.projects = ProjectStore(user_data_path("projects"))
+        self._project = None
+        self._plans: list[TagPlan] = []
+        self._plans_key: tuple | None = None
 
         self._models = dict(DEFAULT_MODELS)
         self._model_label = next(iter(self._models))
@@ -153,8 +170,14 @@ class Session:
                         "parent": project.parent_tag,
                         "targets": list(project.target_tags),
                         "contexts": list(project.context_tags),
+                        "groups": [g.to_json() for g in project.groups],
                     }
                     if project.xml_path
+                    else None
+                ),
+                "project": (
+                    {"id": self._project.id, "name": self._project.name, "folder": self._project.folder}
+                    if self._project
                     else None
                 ),
                 "loaded": bool(project.xml_path),
@@ -187,6 +210,7 @@ class Session:
                     "translation": entry.translation,
                     "status": str(entry.status),
                     "sourceTag": entry.source_tag,
+                    "group": _record_tag(entry.container_xpath),
                     "context": dict(entry.context),
                     "error": entry.error_message,
                 }
@@ -258,17 +282,65 @@ class Session:
             )
         return {**counts, "sample": sample}
 
+    def _profile(self) -> GameProfile:
+        return profile_for(self._project.game_root) if self._project else GENERIC
+
+    def analyze(self) -> dict:
+        """Record tags of the open XML with a suggested role for each field."""
+        index = self._index()
+        profile = self._profile()
+        key = (index.path, index.mtime_ns, profile.id)
+        if self._plans_key != key:
+            self._plans = plan(index, profile)
+            self._plans_key = key
+        return {
+            "profile": {"id": profile.id, "name": profile.name},
+            "tags": [p.to_json() for p in self._plans],
+        }
+
+    def preview_groups(self, groups: Sequence[Group]) -> dict:
+        """Counts for a multi-tag selection and a sample record per tag that has text."""
+        index = self._index()
+        records = lines = 0
+        sample = []
+        for group in groups:
+            if not group.targets:
+                continue
+            counts = index.preview(group.parent, group.targets, group.contexts)
+            records += counts["records"]
+            lines += counts["lines"]
+            wanted = set(group.targets)
+            for element in index.elements_by_tag.get(group.parent, []):
+                if any(_local_name(c.tag) in wanted and (c.text or "").strip() for c in element):
+                    sample.append(self._sample_record(element))
+                    break
+        return {"records": records, "lines": lines, "sample": sample[:6]}
+
+    @staticmethod
+    def _sample_record(element) -> dict:
+        return {
+            "tag": _local_name(element.tag),
+            "attributes": {_local_name(k): v for k, v in element.attrib.items()},
+            "fields": [
+                {"tag": _local_name(child.tag), "text": (child.text or "").strip()[:240]}
+                for child in list(element)[:14]
+                if isinstance(child.tag, str) and len(child) == 0
+            ],
+        }
+
     def load(self, parent: str, targets: Sequence[str], contexts: Sequence[str]) -> dict:
+        return self.load_groups([Group.of(parent, targets, contexts)])
+
+    def load_groups(self, groups: Sequence[Group]) -> dict:
         self._require_idle()
         self._index()
-        targets = [t for t in dict.fromkeys(targets) if t]
-        contexts = [c for c in dict.fromkeys(contexts) if c and c not in targets]
-        if not parent or not targets:
+        groups = [g for g in groups if g.parent and g.targets]
+        if not groups:
             raise SessionError("tags_required")
         self._xml_busy = True
         self._bump()
         try:
-            success, error = self.ctrl.load_xml(self._xml_path, parent, targets, contexts)
+            success, error = self.ctrl.load_xml_groups(self._xml_path, groups)
             if not success:
                 self.log(error, "error")
                 raise SessionError("xml_invalid", 422)
@@ -279,12 +351,138 @@ class Session:
                 self._entry_rev.clear()
             self._bump()
         count = len(self.ctrl.project.entries)
+        if self._project:
+            remembered = self.projects.remember(self._project.id, self._xml_path, groups)
+            self._project = remembered or self._project
         if restored:
             self.log(self.i18n.get("log_checkpoint_loaded", n=restored))
         self.log(
             self.i18n.get("log_load_success", filename=os.path.basename(self._xml_path), count=count)
         )
         return {"count": count, "restored": restored}
+
+    def close_file(self) -> None:
+        """Save progress and unload the XML, back to the project or the start."""
+        self._require_idle()
+        self._persist()
+        self.ctrl.project = TranslationProject()
+        self._xml_path = ""
+        self._parents = []
+        with self._lock:
+            self._entry_rev.clear()
+        self._bump()
+
+    # ------------------------------------------------------------------
+    # Projects
+    # ------------------------------------------------------------------
+
+    @property
+    def _project(self) -> Project | None:
+        return self.__project
+
+    @_project.setter
+    def _project(self, project: Project | None) -> None:
+        # Files of an open project are stored under the project, not their name alone.
+        self.__project = project
+        self.ctrl.store_scope = (project.id, project.folder) if project else None
+
+    def _file_rows(self, project: Project) -> list[dict]:
+        code = self._project_code(project)
+        return file_rows(
+            project,
+            code,
+            user_data_path("checkpoints"),
+            progress_of=lambda rel: self.ctrl.store.progress(f"{project.id}:{rel}", code),
+        )
+
+    def _project_json(self, project: Project, rows: list[dict] | None = None) -> dict:
+        if rows is None:
+            rows = self._file_rows(project)
+        return {
+            "id": project.id,
+            "name": project.name,
+            "folder": project.folder,
+            "gameRoot": project.game_root,
+            "profile": profile_for(project.game_root).name,
+            "folderExists": os.path.isdir(project.folder),
+            "target": project.target,
+            "lastFile": project.last_file,
+            "updatedAt": project.updated_at,
+            "summary": summarize(rows),
+        }
+
+    def _project_code(self, project: Project) -> str:
+        if not project.target:
+            return self._target_code()
+        return self.ctrl.resolve_translation_target(project.target).get("code", "pt")
+
+    def _get_project(self, project_id: str) -> Project:
+        try:
+            return self.projects.get(project_id)
+        except KeyError:
+            raise SessionError("project_not_found", 404) from None
+
+    def list_projects(self) -> list[dict]:
+        return [self._project_json(project) for project in self.projects.list()]
+
+    @staticmethod
+    def detect_game(folder: str) -> dict:
+        game = detect_game(folder) if folder else None
+        if game is None:
+            raise SessionError("folder_not_found", 404)
+        return game
+
+    def create_project(self, name: str, folder: str, target: str = "") -> dict:
+        game = self.detect_game(folder)
+        if target and target not in self.ctrl.available_translation_targets().values():
+            raise SessionError("locale_invalid")
+        project = self.projects.create(
+            name or game["name"],
+            game["xmlFolder"],
+            target or self.ctrl.translation_target.get("locale", ""),
+            game_root=game["root"],
+        )
+        return self._project_json(project)
+
+    def project_detail(self, project_id: str) -> dict:
+        project = self._get_project(project_id)
+        rows = self._file_rows(project)
+        return {**self._project_json(project, rows), "files": rows}
+
+    def rename_project(self, project_id: str, name: str, folder: str | None = None) -> dict:
+        self._get_project(project_id)
+        game = self.detect_game(folder) if folder is not None else None
+        project = self.projects.update(
+            project_id,
+            name=name,
+            folder=game["xmlFolder"] if game else None,
+            game_root=game["root"] if game else None,
+        )
+        if self._project and self._project.id == project_id:
+            self._project = project
+            self._bump()
+        return self._project_json(project)
+
+    def delete_project(self, project_id: str) -> None:
+        if self._project and self._project.id == project_id:
+            self.close_project()
+        self.projects.delete(project_id)
+
+    def open_project(self, project_id: str) -> dict:
+        project = self._get_project(project_id)
+        if self.ctrl.project.xml_path:
+            self.close_file()
+        if project.target and project.target in self.ctrl.available_translation_targets().values():
+            self._set_target(project.target)
+        self._project = self.projects.update(project_id)
+        self._bump()
+        return self.project_detail(project_id)
+
+    def close_project(self) -> None:
+        if self.ctrl.project.xml_path:
+            self.close_file()
+        self._project = None
+        self._bump()
 
     # ------------------------------------------------------------------
     # Translation
@@ -342,7 +540,7 @@ class Session:
                 if current is not None and current.status == EntryStatus.ERROR:
                     self.log(str(result), "error")
                 else:
-                    self.ctrl.project.set_translation(xpath, result)
+                    self.ctrl.project.set_translation(xpath, result, source="ai")
                 self._persist()
             except Exception as exc:  # the UI must never be left with a stuck row
                 self.ctrl.project.mark_error(xpath)
@@ -364,9 +562,16 @@ class Session:
         if text == entry.translation:
             return
         # An edited text is no longer the reviewed one: it goes back to "to review".
-        self.ctrl.project.set_translation(xpath, text, "translated")
+        self.ctrl.project.set_translation(xpath, text, "translated", source="manual")
         self._persist()
         self._bump(xpath)
+
+    def history(self, xpath: str) -> list[dict]:
+        """Earlier versions of an entry, newest first."""
+        self._require_project()
+        if self.ctrl.project.get_entry(xpath) is None:
+            raise SessionError("entry_not_found", 404)
+        return self.ctrl.entry_history(xpath)
 
     def confirm(self, xpath: str, text: str | None = None) -> None:
         self._require_project()
@@ -582,6 +787,8 @@ class Session:
             self.ctrl.save_preferred_locale(locale)
         if "target" in changes:
             self._set_target(changes["target"])
+            if self._project:
+                self._project = self.projects.update(self._project.id, target=changes["target"])
         prefs_changed = False
         if changes.get("theme") in THEMES:
             self.prefs["theme"] = changes["theme"]

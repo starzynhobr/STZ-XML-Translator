@@ -16,22 +16,25 @@ function answerNextPrompt(page: Page, value: string) {
 
 const rows = (page: Page) => page.locator('section button[aria-current]')
 const progress = (page: Page) => page.getByText(/\d+ confirmadas · \d+ a revisar · \d+ pendentes/)
-const tagGroup = (page: Page, title: string) => page.getByText(title, { exact: true }).locator('xpath=ancestor::div[contains(@class,"flex-col")][1]')
+const role = (page: Page, field: string, choice: string) => page.getByRole('radiogroup', { name: field, exact: true }).getByRole('radio', { name: choice })
 
 test('opens a file, picks the fields and loads the entries', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Projetos', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Abrir XML avulso' }).click()
   await expect(page.getByRole('heading', { name: 'Abra um arquivo XML' })).toBeVisible()
 
   answerNextPrompt(page, xmlPath)
   await page.getByRole('button', { name: 'Escolher arquivo' }).click()
   await expect(page.getByRole('heading', { name: 'O que vamos traduzir?' })).toBeVisible()
-  await expect(page.getByLabel('Tag que se repete')).toContainText('item · 4 registros')
+  // The text fields come pre-selected; the icon path is technical and stays hidden.
+  await expect(page.getByRole('button', { name: 'Usar item' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(role(page, 'description', 'Traduzir')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('radiogroup', { name: 'icon' })).toBeHidden()
+  await expect(page.getByText('4 registros · 8 textos para traduzir')).toBeVisible()
 
-  // Nothing can be loaded before a field is chosen.
-  await expect(page.getByRole('button', { name: 'Escolha um campo para traduzir' })).toBeDisabled()
-  await tagGroup(page, 'Campos para traduzir').getByRole('button', { name: 'description' }).click()
-  await tagGroup(page, 'Campos de contexto').getByRole('button', { name: 'name', exact: true }).click()
-
+  // The item names become context for the AI instead of being translated.
+  await role(page, 'name', 'Contexto').click()
   await expect(page.getByText('4 registros · 4 textos para traduzir')).toBeVisible()
   const preview = page.getByRole('region', { name: 'Prévia' })
   await expect(preview).toContainText('<item id="1" rarity="rare">')
@@ -206,8 +209,8 @@ test('going back to the fields keeps the current choice', async ({ page }) => {
   await page.goto('/')
   await page.getByTitle('Alterar campos').click()
   await expect(page.getByRole('heading', { name: 'O que vamos traduzir?' })).toBeVisible()
-  await expect(tagGroup(page, 'Campos para traduzir').getByRole('button', { name: 'description' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(tagGroup(page, 'Campos de contexto').getByRole('button', { name: 'name', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(role(page, 'description', 'Traduzir')).toHaveAttribute('aria-checked', 'true')
+  await expect(role(page, 'name', 'Contexto')).toHaveAttribute('aria-checked', 'true')
   await page.getByRole('dialog').getByRole('button', { name: 'Fechar', exact: true }).click()
   await expect(progress(page)).toHaveText('2 confirmadas · 2 a revisar · 0 pendentes')
 })

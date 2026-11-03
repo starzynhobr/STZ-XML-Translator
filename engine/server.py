@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from core.extrator import Group
 from engine.session import Session, SessionError
 
 # The Tauri webview (release and dev) and the Vite dev server in a browser.
@@ -32,6 +33,10 @@ class TagsBody(BaseModel):
     parent: str
     targets: list[str] = []
     contexts: list[str] = []
+
+
+class GroupsBody(BaseModel):
+    groups: list[TagsBody]
 
 
 class TranslateBody(BaseModel):
@@ -68,6 +73,17 @@ class ApiKeyBody(BaseModel):
 
 class FeedbackBody(BaseModel):
     text: str
+
+
+class ProjectBody(BaseModel):
+    name: str = ""
+    folder: str
+    target: str = ""
+
+
+class ProjectUpdateBody(BaseModel):
+    name: str = ""
+    folder: str | None = None
 
 
 def create_app(session: Session, token: str) -> FastAPI:
@@ -118,8 +134,59 @@ def create_app(session: Session, token: str) -> FastAPI:
         return session.preview(body.parent, body.targets, body.contexts)
 
     @app.post("/api/xml/load", dependencies=auth)
-    def load(body: TagsBody) -> dict:
+    def load(body: TagsBody | GroupsBody) -> dict:
+        if isinstance(body, GroupsBody):
+            return session.load_groups([Group.of(g.parent, g.targets, g.contexts) for g in body.groups])
         return session.load(body.parent, body.targets, body.contexts)
+
+    @app.get("/api/xml/analyze", dependencies=auth)
+    def analyze() -> dict:
+        return session.analyze()
+
+    @app.post("/api/xml/preview-groups", dependencies=auth)
+    def preview_groups(body: GroupsBody) -> dict:
+        return session.preview_groups([Group.of(g.parent, g.targets, g.contexts) for g in body.groups])
+
+    @app.post("/api/xml/close", dependencies=auth)
+    def close_xml() -> dict:
+        session.close_file()
+        return ok
+
+    # --- Projects ----------------------------------------------------------
+
+    @app.get("/api/projects", dependencies=auth)
+    def projects() -> dict:
+        return {"projects": session.list_projects()}
+
+    @app.post("/api/projects", dependencies=auth)
+    def create_project(body: ProjectBody) -> dict:
+        return session.create_project(body.name, body.folder, body.target)
+
+    @app.post("/api/projects/detect", dependencies=auth)
+    def detect_game(body: PathBody) -> dict:
+        return session.detect_game(body.path)
+
+    @app.post("/api/projects/close", dependencies=auth)
+    def close_project() -> dict:
+        session.close_project()
+        return ok
+
+    @app.get("/api/projects/{project_id}", dependencies=auth)
+    def project(project_id: str) -> dict:
+        return session.project_detail(project_id)
+
+    @app.put("/api/projects/{project_id}", dependencies=auth)
+    def update_project(project_id: str, body: ProjectUpdateBody) -> dict:
+        return session.rename_project(project_id, body.name, body.folder)
+
+    @app.delete("/api/projects/{project_id}", dependencies=auth)
+    def delete_project(project_id: str) -> dict:
+        session.delete_project(project_id)
+        return ok
+
+    @app.post("/api/projects/{project_id}/open", dependencies=auth)
+    def open_project(project_id: str) -> dict:
+        return session.open_project(project_id)
 
     @app.post("/api/xml/export", dependencies=auth)
     def export_xml(body: PathBody) -> dict:
@@ -147,6 +214,10 @@ def create_app(session: Session, token: str) -> FastAPI:
     def edit(body: EntryBody) -> dict:
         session.edit(body.id, body.text or "")
         return ok
+
+    @app.get("/api/entries/history", dependencies=auth)
+    def history(id: str) -> dict:
+        return {"versions": session.history(id)}
 
     @app.post("/api/entries/confirm", dependencies=auth)
     def confirm(body: EntryBody) -> dict:

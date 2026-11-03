@@ -55,5 +55,5 @@ test('a restarted engine replaces stale state even when its revision repeats', a
     const current = window as unknown as { recoveryStatus: { generation: number } }
     current.recoveryStatus.generation = 2
   })
-  await expect(page.getByRole('heading', { name: 'Abra um arquivo XML' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Projetos', exact: true })).toBeVisible()
 })

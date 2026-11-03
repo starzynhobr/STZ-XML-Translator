@@ -37,6 +37,8 @@ class TranslationWorker:
             parent_tag=self._project.parent_tag,
             target_tags=self._project.target_tags,
             context_tags=self._project.context_tags,
+            portable=True,
+            groups=self._project.groups,
         )
     BATCH_SIZE = 120
     BATCH_DELAY_SECONDS = 5
@@ -89,7 +91,7 @@ class TranslationWorker:
             result = translate_text(service, entry.original, self._config_for_entry(entry))
             if not result or not result.strip():
                 raise ValueError("Empty translation response")
-            self._project.set_translation(xpath, result)
+            self._project.set_translation(xpath, result, source="ai")
             return result
         except Exception as exc:
             self._project.mark_error(xpath, classify_error(exc))
@@ -222,7 +224,7 @@ class TranslationWorker:
                 for entry in batch:
                     text = results.get(entry.xpath)
                     if text and text.strip():
-                        project.set_translation(entry.xpath, text, status="done")
+                        project.set_translation(entry.xpath, text, status="done", source="ai")
                         self._on_entry_translated(entry.xpath, text)
                     else:
                         project.mark_error(entry.xpath, "missing_result")
@@ -253,7 +255,7 @@ class TranslationWorker:
                 for entry in batch:
                     text = results.get(entry.xpath)
                     if text and text.strip():
-                        project.set_translation(entry.xpath, text, status="done")
+                        project.set_translation(entry.xpath, text, status="done", source="ai")
                         self._on_entry_translated(entry.xpath, text)
                     else:
                         project.mark_error(entry.xpath, "missing_result")
@@ -288,7 +290,7 @@ class TranslationWorker:
                                 for entry in mini:
                                     text = results.get(entry.xpath, "")
                                     if text and text.strip():
-                                        project.set_translation(entry.xpath, text, status="done")
+                                        project.set_translation(entry.xpath, text, status="done", source="ai")
                                         self._on_entry_translated(entry.xpath, text)
                                     else:
                                         project.mark_error(entry.xpath, "missing_result")
@@ -310,7 +312,7 @@ class TranslationWorker:
                             return
                         if not text or not text.strip():
                             raise ValueError("Empty translation response")
-                        project.set_translation(entry.xpath, text, status="done")
+                        project.set_translation(entry.xpath, text, status="done", source="ai")
                         self._on_entry_translated(entry.xpath, text)
                     except Exception as exc:
                         project.mark_error(entry.xpath, classify_error(exc))

@@ -7,6 +7,7 @@ import { I18nProvider, useT } from '@/lib/i18n'
 import { HTML_LANG } from '@/lib/messages'
 import Bench from '@/screens/Bench'
 import Glossary from '@/screens/Glossary'
+import { ProjectView, ProjectsHome } from '@/screens/Projects'
 import Settings from '@/screens/Settings'
 import Start from '@/screens/Start'
 
@@ -69,6 +70,8 @@ function RecoveryNotice({ status }: { status: EngineStatus | null }) {
 export default function App() {
   const { state, entries, online, engineStatus, refresh } = useEngine()
   const [screen, setScreen] = useState<Screen>('main')
+  // Picking fields for a file: '' opens the file chooser, a path opens that file.
+  const [picking, setPicking] = useState<string | null>(null)
   const [glossaryOpen, setGlossaryOpen] = useState(false)
   const [terms, setTerms] = useState<Term[]>([])
   const [updateOpen, setUpdateOpen] = useState(false)
@@ -106,13 +109,35 @@ export default function App() {
     content = <Waiting offline={!online} status={engineStatus} onRetry={() => { void retryEngine().then(refresh) }} />
   } else if (screen === 'settings') {
     content = <Settings state={state} refresh={refresh} onBack={() => setScreen('main')} onOpenUpdate={openUpdate} />
-  } else if (!state.loaded) {
+  } else if (!state.loaded && picking !== null) {
     content = (
       <Start
+        key={picking}
+        initialPath={picking || undefined}
         state={state}
         refresh={refresh}
-        onLoaded={() => setScreen('main')}
-        onBack={state.loaded ? () => setScreen('main') : null}
+        onLoaded={() => { setPicking(null); setScreen('main') }}
+        onBack={() => setPicking(null)}
+        onOpenSettings={() => setScreen('settings')}
+        onOpenGlossary={() => setGlossaryOpen(true)}
+      />
+    )
+  } else if (!state.loaded && state.project) {
+    content = (
+      <ProjectView
+        state={state}
+        refresh={refresh}
+        onPickFile={setPicking}
+        onOpenSettings={() => setScreen('settings')}
+        onOpenGlossary={() => setGlossaryOpen(true)}
+      />
+    )
+  } else if (!state.loaded) {
+    content = (
+      <ProjectsHome
+        state={state}
+        refresh={refresh}
+        onOpenXml={() => setPicking('')}
         onOpenSettings={() => setScreen('settings')}
         onOpenGlossary={() => setGlossaryOpen(true)}
       />

@@ -15,6 +15,15 @@ export async function pickFile(filters: Filter[]): Promise<string | null> {
   return window.prompt('Path of the file to open') || null
 }
 
+export async function pickFolder(): Promise<string | null> {
+  if (isTauri()) {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const chosen = await open({ multiple: false, directory: true })
+    return typeof chosen === 'string' ? chosen : null
+  }
+  return window.prompt('Path of the folder to open') || null
+}
+
 export async function pickSavePath(defaultPath: string, filters: Filter[]): Promise<string | null> {
   if (isTauri()) {
     const { save } = await import('@tauri-apps/plugin-dialog')

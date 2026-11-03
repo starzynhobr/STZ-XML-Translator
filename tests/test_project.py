@@ -294,6 +294,36 @@ class TestCheckpoint:
         assert p2.entries[xpaths[0]].translation == "Herói da Luz"
         assert p2.entries[xpaths[1]].status == "translated"
 
+    def test_portable_checkpoint_path_ignores_xml_location(self, tmp_path):
+        first = tmp_path / "build1" / "items.xml"
+        second = tmp_path / "build2" / "items.xml"
+        selection = {"parent_tag": "item", "target_tags": ["dispName"]}
+
+        assert TranslationProject.checkpoint_path(
+            str(first), "pt", str(tmp_path), portable=True, **selection
+        ) == TranslationProject.checkpoint_path(str(second), "pt", str(tmp_path), portable=True, **selection)
+        assert TranslationProject.checkpoint_path(
+            str(first), "pt", str(tmp_path), **selection
+        ) != TranslationProject.checkpoint_path(str(first), "pt", str(tmp_path), portable=True, **selection)
+
+    def test_checkpoint_skips_entries_whose_original_changed(self, tmp_path, loaded_project):
+        xpaths = list(loaded_project.entries.keys())
+        loaded_project.set_translation(xpaths[0], "Herói da Luz")
+        loaded_project.set_translation(xpaths[1], "Ladrão das Sombras")
+        ckpt = tmp_path / "ckpt.json"
+        assert loaded_project.save_checkpoint(str(ckpt))
+
+        data = json.loads(ckpt.read_text(encoding="utf-8"))
+        data["entries"][xpaths[0]]["original"] = "Text from an older build"
+        ckpt.write_text(json.dumps(data), encoding="utf-8")
+
+        p2 = TranslationProject()
+        p2.load(FIXTURE_XML, "item", "dispName")
+
+        assert p2.load_checkpoint(str(ckpt)) == 1
+        assert p2.entries[xpaths[0]].translation == ""
+        assert p2.entries[xpaths[1]].translation == "Ladrão das Sombras"
+
     def test_load_nonexistent_checkpoint_returns_zero(self, loaded_project):
         count = loaded_project.load_checkpoint("/nonexistent/ckpt.json")
         assert count == 0

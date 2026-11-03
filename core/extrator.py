@@ -156,6 +156,43 @@ class XmlDocumentIndex:
         return True, entries
 
 
+@dataclass(frozen=True)
+class Group:
+    """One record tag and its fields: part of a selection over one XML file."""
+
+    parent: str
+    targets: tuple[str, ...]
+    contexts: tuple[str, ...] = ()
+
+    @classmethod
+    def of(cls, parent: str, targets: Sequence[str], contexts: Sequence[str] = ()) -> Group:
+        clean_targets = tuple(_unique_tags(targets))
+        clean_contexts = tuple(tag for tag in _unique_tags(contexts) if tag not in clean_targets)
+        return cls(parent.strip(), clean_targets, clean_contexts)
+
+    def to_json(self) -> dict:
+        return {"parent": self.parent, "targets": list(self.targets), "contexts": list(self.contexts)}
+
+
+def extract_groups(index: XmlDocumentIndex, groups: Sequence[Group]) -> tuple[bool, list[ExtractedEntry] | str]:
+    """Entries of every group, in group order; a group without text is skipped."""
+    entries: list[ExtractedEntry] = []
+    seen: set[str] = set()
+    first_error = ""
+    for group in groups:
+        ok, result = index.extract_entries(group.parent, group.targets, group.contexts)
+        if not ok or isinstance(result, str):
+            first_error = first_error or str(result)
+            continue
+        for entry in result:
+            if entry.xpath not in seen:
+                seen.add(entry.xpath)
+                entries.append(entry)
+    if not entries:
+        return False, first_error or "AVISO: Selecione pelo menos uma tag alvo."
+    return True, entries
+
+
 def _local_name(tag: str) -> str:
     """Return an element's local tag name, with an XML namespace removed."""
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
