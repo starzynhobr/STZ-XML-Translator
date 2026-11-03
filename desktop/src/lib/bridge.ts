@@ -120,6 +120,20 @@ export interface EngineState {
   settings: Settings
   update: UpdateInfo
   import: ImportState
+  job: JobState
+}
+
+/** One long operation over the whole project (apply, translate all, new build...). */
+export interface JobState {
+  kind?: 'apply' | 'play' | 'restore' | 'export' | 'translate' | 'update'
+  status: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
+  done?: number
+  total?: number
+  file?: string
+  /** Cancel was asked: the requests in flight finish (and are saved) before it stops. */
+  cancelling?: boolean
+  error?: string
+  result?: Record<string, unknown>
 }
 
 /** Comparing a clean copy of the game with the hand-edited XMLs. */
@@ -201,6 +215,8 @@ export interface ProjectSummary {
   folder: string
   gameRoot: string
   hasOriginals: boolean
+  applied: boolean
+  gameExe: string
   profile: string
   folderExists: boolean
   target: string

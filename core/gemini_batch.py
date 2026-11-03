@@ -29,7 +29,12 @@ from dataclasses import dataclass, field
 # several requests in flight, and small enough to answer in seconds.
 MAX_CHARS = 12_000
 MAX_ITEMS = 150
-RETRIES = 3
+# A per-minute limit only asks to wait: retry longer before giving up on a request.
+RATE_RETRIES = 6
+MIN_RATE_WAIT = 10.0
+# Longer waits (a model with no quota on this key asks for ~18 h) are not worth
+# waiting for: the request fails as an exhausted quota instead.
+MAX_RATE_WAIT = 90.0
 RESPONSE_SCHEMA = {
     "type": "ARRAY",
     "items": {
@@ -152,12 +157,23 @@ def retry_after(exc: Exception) -> float | None:
     if "429" not in text and "RESOURCE_EXHAUSTED" not in text and "quota" not in text.lower():
         return None
     match = _RETRY_AFTER.search(text)
-    return float(match.group(1)) if match else 20.0
+    return max(float(match.group(1)), MIN_RATE_WAIT) if match else 20.0
 
 
 def daily_quota_exhausted(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return "429" in text and ("per day" in text or "perday" in text or "requests_per_day" in text)
+    """A 429 whose only violated quotas are per day: waiting minutes will not help.
+
+    Google lists the violated quota ids (``...PerMinute...``, ``...PerDay...``);
+    a per-minute limit in the list means the request may pass after a wait.
+    """
+    text = str(exc)
+    if "429" not in text:
+        return False
+    match = re.search(r"\[quota: ([^\]]*)\]", text)
+    if not match:
+        return False  # without the ids, assume the recoverable case and wait
+    ids = [quota.strip().lower() for quota in match.group(1).split(",") if quota.strip()]
+    return bool(ids) and all("perday" in quota for quota in ids)
 
 
 def build_prompt(items: Sequence[dict], rules: str, target_label: str) -> str:

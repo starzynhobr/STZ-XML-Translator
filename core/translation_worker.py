@@ -136,7 +136,8 @@ class TranslationWorker:
         units = gemini_batch.dedupe(pending)
         if len(units) < len(pending):
             self._on_log(self._s("dedup", unique=len(units), total=len(pending)))
-        self._gate = gemini_batch.RateGate(float(self._config.get("gemini_rpm", GEMINI_RPM)))
+        # A whole-project run shares one pace across files; a single file gets its own.
+        self._gate = self._config.get("_rate_gate") or gemini_batch.RateGate(float(self._config.get("gemini_rpm", GEMINI_RPM)))
         names = [unit for unit in units if gemini_batch.is_name_field(unit.entry.source_tag)]
         rest = [unit for unit in units if not gemini_batch.is_name_field(unit.entry.source_tag)]
 
@@ -449,7 +450,9 @@ class TranslationWorker:
             ) + "\n"
         prompt = gemini_batch.build_prompt(items, rules, self._config.get("target_label", "Portuguese (Brazil)"))
         error: Exception | None = None
-        for _attempt in range(gemini_batch.RETRIES):
+        rate_waits = 0
+        # Only a per-minute limit is retried (after the wait it asks for); anything else fails now.
+        while rate_waits <= gemini_batch.RATE_RETRIES:
             if not gate.wait(self._cancel_event.is_set):
                 self._local.error = "cancelled"
                 return None
@@ -467,9 +470,14 @@ class TranslationWorker:
                 }
             except Exception as exc:  # classified below; the raw text never reaches the UI
                 error = exc
-                wait_for = None if gemini_batch.daily_quota_exhausted(exc) else gemini_batch.retry_after(exc)
+                wait_for = gemini_batch.retry_after(exc)
+                if gemini_batch.daily_quota_exhausted(exc) or (wait_for or 0) > gemini_batch.MAX_RATE_WAIT:
+                    self._local.error = "daily_quota"
+                    self._on_log(self._s("api_error", exc=ERROR_MESSAGES["daily_quota"]))
+                    return None
                 if wait_for is None:
-                    break
+                    break  # not a rate limit: fail now, the entries stay retryable
+                rate_waits += 1
                 gate.slow_down(wait_for)
                 self._on_log(self._s("rate_wait", s=round(wait_for)))
         self._local.error = classify_error(error) if error else "batch_failed"

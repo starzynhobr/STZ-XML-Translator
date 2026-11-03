@@ -92,3 +92,4 @@ desktop.ini
 # Preferências da interface nova (tema, cor), geradas ao rodar em desenvolvimento
 ui_prefs.json
 /translations.db*
+/checkpoints/

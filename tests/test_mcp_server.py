@@ -92,3 +92,25 @@ def test_an_agent_imports_a_hand_made_translation(call, tmp_path):
 def test_errors_carry_a_code(call):
     with pytest.raises(ToolError, match="error: no_file"):
         call("list_entries")
+
+
+def test_project_tools_apply_and_restore(call, tmp_path):
+    game = tmp_path / "Game"
+    xmls = game / "Game_Data"
+    xmls.mkdir(parents=True)
+    (game / "Game.exe").write_bytes(b"MZ")
+    (xmls / "items.xml").write_text(XML, encoding="utf-8")
+    project = call("create_project", game_folder=str(game), name="Game")
+    call("open_project", project_id=project["id"])
+    call("load_file", path=str(xmls / "items.xml"))
+    first = call("list_entries", field="item > description")["entries"][0]
+    call("set_translations", translations=[{"id": first["id"], "text": "Uma espada curta."}])
+
+    applied = call("apply_to_game")
+    assert applied["result"] == {"files": 1, "texts": 1}
+    assert "Uma espada curta." in (xmls / "items.xml").read_text(encoding="utf-8")
+    assert call("restore_game")["result"] == {"files": 1}
+    assert "Uma espada curta." not in (xmls / "items.xml").read_text(encoding="utf-8")
+
+    package = tmp_path / "pt.stzpack"
+    assert call("export_package", output_path=str(package))["texts"] == 1

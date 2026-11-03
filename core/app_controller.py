@@ -11,8 +11,6 @@ from core.atomic import write_json_atomic
 from core.extrator import ExtractedEntry, Group, XmlDocumentIndex, extract_groups, indexar_xml
 from core.project import EntryStatus, TranslationProject
 from core.store import EntryState, TranslationStore
-
-STORE_FILE = "translations.db"
 from core.translation_worker import TranslationWorker
 
 TRANSLATION_TARGETS: dict[str, dict[str, str]] = {
@@ -26,6 +24,8 @@ TRANSLATION_TARGETS: dict[str, dict[str, str]] = {
     "da": {"code": "da", "deepl": "DA", "label": "Danish", "display": "Dansk", "locale": "da_DK"},
     "tr": {"code": "tr", "deepl": "TR", "label": "Turkish", "display": "Türkçe", "locale": "tr_TR"},
 }
+
+STORE_FILE = "translations.db"
 
 CONFIG_FILE = "config.json"
 PRESETS_FILE = "tag_presets.json"
@@ -735,11 +735,12 @@ class AppController:
             default_source,
         )
 
-    def _apply_rows(self, key: str) -> int:
+    def _apply_rows(self, key: str, project: TranslationProject | None = None) -> int:
+        target = project or self.project
         rows = self.store.load(key, self._target_lang())
         count = 0
         for xpath, row in rows.items():
-            entry = self.project.entries.get(xpath)
+            entry = target.entries.get(xpath)
             # A newer build changed this text: keep it pending for a fresh translation.
             if entry is None or row.original != entry.original or not row.translation:
                 continue
@@ -750,7 +751,7 @@ class AppController:
             if entry.status == EntryStatus.ERROR:
                 entry.error_code = row.error_code
             count += 1
-        self.project.recover_interrupted()
+        target.recover_interrupted()
         return count
 
     def entry_history(self, xpath: str) -> list[dict]:
@@ -761,23 +762,32 @@ class AppController:
     def file_progress(self, xml_path: str, lang_code: str) -> dict | None:
         return self.store.progress(self.store_key(xml_path), lang_code)
 
-    def restore_checkpoint_for(self, xml_path: str) -> int:
-        """Restore progress from SQLite; the first time, import it from the JSON checkpoints."""
+    def restore_checkpoint_for(self, xml_path: str, project: TranslationProject | None = None) -> int:
+        """Restore progress from SQLite; the first time, import it from the JSON checkpoints.
+
+        ``project`` loads into another project than the open one (a background
+        run over a whole game); its JSON checkpoint is found by its own tags.
+        """
+        target = project or self.project
         key = self.store_key(xml_path)
         lang = self._target_lang()
         if self.store.has(key, lang):
-            return self._apply_rows(key)
+            return self._apply_rows(key, target)
         loose = f"file:{os.path.basename(xml_path).lower()}"
         if key != loose and self.store.has(loose, lang):
             # Translated as a loose file before the project existed.
-            count = self._apply_rows(loose)
-        else:
-            count = self.project.load_checkpoint_with_fallback(
+            count = self._apply_rows(loose, target)
+        elif project is None:
+            count = target.load_checkpoint_with_fallback(
                 self.checkpoint_path_for(xml_path),
                 self.checkpoint_fallbacks_for(xml_path),
             )
+        else:
+            count = target.load_checkpoint(
+                target.checkpoint_path(xml_path, lang, user_data_path("checkpoints"), portable=True, groups=target.groups)
+            )
         if count:
-            self._mirror_to_store(self.project, "import")
+            self._mirror_to_store(target, "import")
         return count
 
     # ------------------------------------------------------------------

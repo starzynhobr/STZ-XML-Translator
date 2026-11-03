@@ -178,6 +178,19 @@ def _gemini_request(method: str, url: str, api_key: str, **kwargs) -> dict:
             payload = response.json()
             error = payload.get("error", {}) if isinstance(payload, dict) else {}
             detail = str(error.get("message", "")).strip()
+            # A 429's message reads the same for a per-minute and a per-day limit;
+            # only the quota ids and the retry delay in the details tell them apart.
+            details = error.get("details") or []
+            quota_ids = [
+                str(violation.get("quotaId", ""))
+                for item in details if isinstance(item, dict)
+                for violation in item.get("violations") or [] if isinstance(violation, dict)
+            ]
+            delays = [str(item["retryDelay"]) for item in details if isinstance(item, dict) and item.get("retryDelay")]
+            if quota_ids:
+                detail += f" [quota: {', '.join(filter(None, quota_ids))}]"
+            if delays:
+                detail += f" Please retry in {delays[0].rstrip('s')}s."
         except (ValueError, AttributeError):
             detail = response.text.strip()[:500]
         status = response.status_code

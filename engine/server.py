@@ -78,6 +78,11 @@ class FeedbackBody(BaseModel):
     text: str
 
 
+class ApplyBody(BaseModel):
+    confirmedOnly: bool = False  # noqa: N815 - matches the UI's JSON
+    launch: bool = False
+
+
 class ProjectBody(BaseModel):
     name: str = ""
     folder: str
@@ -181,6 +186,57 @@ def create_app(session: Session, token: str) -> FastAPI:
     @app.post("/api/import/cancel", dependencies=auth)
     def cancel_import() -> dict:
         session.cancel_import()
+        return ok
+
+    @app.post("/api/game/apply", dependencies=auth)
+    def apply_to_game(body: ApplyBody) -> dict:
+        session.apply_to_game(body.confirmedOnly, body.launch)
+        return ok
+
+    @app.post("/api/game/restore", dependencies=auth)
+    def restore_game() -> dict:
+        session.restore_game()
+        return ok
+
+    @app.post("/api/game/launch", dependencies=auth)
+    def launch_game() -> dict:
+        return session.launch_game()
+
+    @app.post("/api/project/translate", dependencies=auth)
+    def translate_project() -> dict:
+        session.translate_project()
+        return ok
+
+    @app.post("/api/project/export-xmls", dependencies=auth)
+    def export_xmls(body: PathBody) -> dict:
+        session.export_translated(body.path)
+        return ok
+
+    @app.post("/api/project/update", dependencies=auth)
+    def start_update(body: PathBody) -> dict:
+        session.start_update(body.path)
+        return ok
+
+    @app.post("/api/project/update/apply", dependencies=auth)
+    def apply_update() -> dict:
+        return session.apply_update()
+
+    @app.post("/api/project/package/export", dependencies=auth)
+    def export_package(body: PathBody) -> dict:
+        return session.export_package(body.path)
+
+    @app.post("/api/project/package/import", dependencies=auth)
+    def import_package(body: PathBody) -> dict:
+        return session.import_package(body.path)
+
+    @app.post("/api/job/cancel", dependencies=auth)
+    def cancel_job() -> dict:
+        session.cancel_job()
+        return ok
+
+    @app.post("/api/job/dismiss", dependencies=auth)
+    def dismiss_job() -> dict:
+        session.dismiss_job()
         return ok
 
     @app.post("/api/projects/close", dependencies=auth)

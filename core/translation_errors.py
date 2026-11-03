@@ -4,6 +4,7 @@ ERROR_MESSAGES = {
     "unknown": "Falha na tradução. Verifique o provedor e tente novamente.",
     "authentication": "Credencial inválida ou acesso negado. Confira a configuração da API.",
     "rate_limit": "Limite ou cota do provedor atingido. Confira a cota antes de tentar novamente.",
+    "daily_quota": "Cota diária do provedor esgotada. Continue amanhã ou escolha outro modelo.",
     "unavailable": "Provedor temporariamente indisponível. Tente novamente mais tarde.",
     "network": "Falha de conexão ou tempo limite. Confira a conexão e tente novamente.",
     "empty_response": "O provedor retornou uma tradução vazia para esta entrada.",

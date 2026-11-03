@@ -11,23 +11,36 @@ import json
 import os
 import platform
 import re
+import shutil
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import requests
 
-from core import updater
+from core import gemini_batch, updater
 from core.app_controller import PROVIDER_URLS, AppController, user_data_dir, user_data_path
 from core.atomic import write_json_atomic
-from core.extrator import Group, XmlDocumentIndex, _local_name
-from core.game_profiles import GENERIC, GameProfile, TagPlan, plan, profile_for
+from core.build_update import compare_build, store_update
+from core.extrator import Group, XmlDocumentIndex, _local_name, extract_groups, indexar_xml
+from core.game_ops import (
+    GameOpError,
+    apply_to_game,
+    game_executable,
+    has_backup,
+    launch_game,
+    restore_game,
+    write_translated,
+)
+from core.game_profiles import GENERIC, GameProfile, TagPlan, plan, profile_for, suggested_groups
 from core.i18n import I18nManager
-from core.project import EntryStatus, TranslationProject
 from core.importer import compare, keep_originals, store_found
-from core.workspace import Project, ProjectStore, detect_game, file_rows, summarize
+from core.package import PackageError, export_package, import_package
+from core.project import EntryStatus, TranslationProject
 from core.tradutor_api import carregar_glossario, glossary_filename, list_gemini_models
+from core.translation_worker import GEMINI_RPM, TranslationWorker
 from core.version import app_version
+from core.workspace import Project, ProjectStore, detect_game, file_rows, summarize, xml_files
 
 PREFS_FILE = "ui_prefs.json"
 FEEDBACK_URL = "https://stzlabs.com/api/feedback/stz-xml-translator"
@@ -92,6 +105,10 @@ class Session:
         self.projects = ProjectStore(user_data_path("projects"))
         self._project = None
         self._import: dict = {"status": "idle"}
+        self._job: dict = {"status": "idle"}
+        self._job_cancel = threading.Event()
+        self._job_worker = None
+        self._build_update: dict | None = None
         self._import_results: list = []
         self._plans: list[TagPlan] = []
         self._plans_key: tuple | None = None
@@ -194,6 +211,7 @@ class Session:
                 "settings": self.settings(),
                 "update": self.update_state(),
                 "import": dict(self._import),
+                "job": dict(self._job),
             }
 
     def entries(self, since: int = 0) -> dict:
@@ -408,6 +426,8 @@ class Session:
             "folder": project.folder,
             "gameRoot": project.game_root,
             "hasOriginals": bool(project.source_folder) and os.path.isdir(project.source_folder),
+            "applied": has_backup(self.projects, project),
+            "gameExe": os.path.basename(game_executable(project) or ""),
             "profile": profile_for(project.game_root).name,
             "folderExists": os.path.isdir(project.folder),
             "target": project.target,
@@ -572,6 +592,243 @@ class Session:
             self._import = {"status": "idle"}
         self._import_results = []
         self._bump()
+
+    # ------------------------------------------------------------------
+    # Project jobs: long work over the whole game, one at a time
+    # ------------------------------------------------------------------
+
+    def job_state(self) -> dict:
+        with self._lock:
+            return dict(self._job)
+
+    def _start_job(self, kind: str, work: Callable[[Callable[[int, int], None]], dict]) -> None:
+        if not self._project:
+            raise SessionError("no_project", 409)
+        self._require_idle()
+        if self._job.get("status") == "running" or self._import.get("status") == "running":
+            raise SessionError("busy", 409)
+        self._job_cancel.clear()
+        with self._lock:
+            self._job = {"kind": kind, "status": "running", "done": 0, "total": 0}
+        self._bump()
+
+        def progress(done: int, total: int) -> None:
+            with self._lock:
+                self._job.update(done=done, total=total)
+            self._bump()
+
+        def run() -> None:
+            try:
+                result = work(progress)
+                status, error = ("cancelled" if self._job_cancel.is_set() else "done"), ""
+            except (GameOpError, SessionError) as exc:
+                result, status, error = {}, "error", exc.code
+            except Exception as exc:  # reported, never left spinning
+                self.log(str(exc), "error")
+                result, status, error = {}, "error", "unknown"
+            with self._lock:
+                self._job = {"kind": kind, "status": status, "error": error, "result": result,
+                             "done": self._job.get("total", 0), "total": self._job.get("total", 0)}
+            self._bump()
+
+        self._spawn(run)
+
+    def cancel_job(self) -> None:
+        """Stop after the requests already in flight: their answers are paid for and saved."""
+        self._job_cancel.set()
+        with self._lock:
+            if self._job.get("status") == "running":
+                self._job["cancelling"] = True
+        self._bump()
+        worker = self._job_worker
+        if worker is not None:
+            worker.cancel()
+
+    def dismiss_job(self) -> None:
+        if self._job.get("status") == "running":
+            raise SessionError("busy", 409)
+        with self._lock:
+            self._job = {"status": "idle"}
+        self._bump()
+
+    def _game_ready(self) -> Project:
+        if self.ctrl.project.xml_path:
+            self.close_file()
+        return self._project
+
+    def apply_to_game(self, confirmed_only: bool = False, launch: bool = False) -> None:
+        """Write the translated files into the game folder (backing up what was there)."""
+        project = self._game_ready()
+        lang = self._project_code(project)
+
+        def work(progress) -> dict:
+            result = apply_to_game(self.ctrl.store, self.projects, project, lang, confirmed_only, progress)
+            self._project = self.projects.get(project.id)
+            if launch:
+                result["launched"] = launch_game(self._project)
+            return result
+
+        self._start_job("play" if launch else "apply", work)
+
+    def restore_game(self) -> None:
+        project = self._game_ready()
+        self._start_job("restore", lambda _progress: {"files": restore_game(self.projects, project)})
+
+    def launch_game(self) -> dict:
+        if not self._project:
+            raise SessionError("no_project", 409)
+        try:
+            return {"launched": launch_game(self._project)}
+        except GameOpError as exc:
+            raise SessionError(exc.code) from None
+
+    def export_translated(self, folder: str) -> None:
+        """The translated XMLs, ready to share, written to a folder of the user's choice."""
+        project = self._game_ready()
+        if not folder:
+            raise SessionError("folder_not_found", 404)
+        lang = self._project_code(project)
+        self._start_job(
+            "export",
+            lambda progress: write_translated(self.ctrl.store, project, lang, folder, on_progress=progress),
+        )
+
+    def translate_project(self) -> None:
+        """Translate every pending text of every file of the project, file after file."""
+        if self._needs_key():
+            raise SessionError("api_key_required", 409)
+        project = self._game_ready()
+        profile = profile_for(project.game_root)
+
+        def work(progress) -> dict:
+            files = xml_files(project.folder)
+            # One pace for the whole run: small files in a row must not burst past the limit.
+            gate = gemini_batch.RateGate(float(GEMINI_RPM))
+            # The same model and settings for every file of the run.
+            config = self.ctrl.build_translation_config(self._model_label, self._models, self.i18n)
+            config["_rate_gate"] = gate
+            translated = 0
+            touched: set[str] = set()
+            retry: list[str] = []
+            stopped = ""
+            # A second pass picks up files a per-minute limit left with errors.
+            for pass_files in (files, None):
+                queue = pass_files if pass_files is not None else retry
+                if not queue or stopped or self._job_cancel.is_set():
+                    break
+                retry = []
+                for done, rel in enumerate(queue):
+                    progress(done, len(queue))
+                    if self._job_cancel.is_set():
+                        break
+                    path = project.open_path(rel)
+                    ok, index = indexar_xml(path)
+                    if not ok or isinstance(index, str):
+                        continue
+                    groups = self._project.selections.get(rel) or suggested_groups(plan(index, profile))
+                    ok, entries = extract_groups(index, groups) if groups else (False, [])
+                    if not ok or isinstance(entries, str):
+                        continue
+                    part = TranslationProject()
+                    part.load_extracted(path, groups[0].parent, groups[0].targets, groups[0].contexts, entries, groups=groups)
+                    part.on_save = self.ctrl._mirror_to_store
+                    self.ctrl.restore_checkpoint_for(path, project=part)
+                    self._project = self.projects.keep_originals(project.id, self._project.source_folder, {rel: groups})
+                    before = sum(1 for e in part.entries.values() if e.needs_translation)
+                    if not before:
+                        continue
+                    touched.add(rel)
+                    with self._lock:
+                        self._job["file"] = rel
+                    self._bump()
+                    worker = TranslationWorker(part, dict(config), lambda *_: None, self.log, lambda: None)
+                    self._job_worker = worker
+                    worker._run()
+                    self._job_worker = None
+                    translated += before - sum(1 for e in part.entries.values() if e.needs_translation)
+                    codes = {e.error_code for e in part.entries.values() if e.status == EntryStatus.ERROR}
+                    # A spent daily quota or a bad key fails every next file too: stop, resume later.
+                    stopped = next((c for c in ("daily_quota", "authentication") if c in codes), "")
+                    if stopped:
+                        break
+                    if "rate_limit" in codes:
+                        retry.append(rel)
+            if stopped:
+                raise SessionError(stopped)
+            return {"files": len(touched), "texts": translated}
+
+        self._start_job("translate", work)
+
+    def start_update(self, folder: str) -> None:
+        """Compare a new build of the game with the project (preview; apply_update saves it)."""
+        game = self.detect_game(folder)
+        project = self._game_ready()
+        same = os.path.normcase(os.path.abspath(game["xmlFolder"])) == os.path.normcase(os.path.abspath(project.folder))
+        if same and has_backup(self.projects, project):
+            # The game folder holds the app's translation, not the new build's texts.
+            raise SessionError("restore_first")
+        lang = self._project_code(project)
+        profile = profile_for(game["root"])
+
+        def work(progress) -> dict:
+            results = compare_build(project, game["xmlFolder"], profile, self.ctrl.store, lang, progress)
+            self._build_update = {"game": game, "results": results}
+            files = [r.to_json() for r in results if r.changed or r.moved or r.removed]
+            return {
+                "folder": game["xmlFolder"],
+                "kept": sum(r.kept for r in results),
+                "changed": sum(r.changed for r in results),
+                "moved": sum(r.moved for r in results),
+                "new": sum(r.new for r in results),
+                "removed": sum(r.removed for r in results),
+                "files": sorted(files, key=lambda f: -(f["changed"] + f["moved"]))[:50],
+            }
+
+        self._start_job("update", work)
+
+    def apply_update(self) -> dict:
+        if not self._project or not self._build_update or self._job.get("kind") != "update" or self._job.get("status") != "done":
+            raise SessionError("no_update_ready", 409)
+        project = self._game_ready()
+        game, results = self._build_update["game"], self._build_update["results"]
+        target = os.path.join(self.projects.data_dir(project.id), "originals")
+        keep_originals(game["xmlFolder"], target, [r.rel for r in results])
+        if os.path.normcase(game["xmlFolder"]) != os.path.normcase(project.folder):
+            # A backup of the old install means nothing for the new one.
+            shutil.rmtree(os.path.join(self.projects.data_dir(project.id), "game-backup"), ignore_errors=True)
+        self.projects.update(project.id, folder=game["xmlFolder"], game_root=game["root"])
+        self._project = self.projects.keep_originals(project.id, target, {r.rel: r.groups for r in results})
+        saved = store_update(self.ctrl.store, self._project, self._project_code(self._project), results)
+        self._build_update = None
+        with self._lock:
+            self._job = {"status": "idle"}
+        self._bump()
+        return {"reused": saved}
+
+    def export_package(self, path: str) -> dict:
+        if not self._project:
+            raise SessionError("no_project", 409)
+        if not path:
+            raise SessionError("export_failed")
+        self._persist()
+        return export_package(self.ctrl.store, self._project, self._project_code(self._project), self.glossary(), path)
+
+    def import_package(self, path: str) -> dict:
+        if not self._project:
+            raise SessionError("no_project", 409)
+        project = self._game_ready()
+        try:
+            result = import_package(self.ctrl.store, project, self._project_code(project), path)
+        except PackageError as exc:
+            raise SessionError(exc.code) from None
+        # Their glossary fills in terms this project does not have yet; ours wins on conflicts.
+        terms = {t["original"]: t for t in result.pop("glossary") if isinstance(t, dict) and t.get("original")}
+        terms.update({t["original"]: t for t in self.glossary()})
+        added = len(terms) - len(self.glossary())
+        if added:
+            self.save_glossary(list(terms.values()))
+        self._bump()
+        return {**result, "glossaryAdded": added}
 
     # ------------------------------------------------------------------
     # Translation

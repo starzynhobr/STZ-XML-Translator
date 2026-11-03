@@ -67,6 +67,10 @@ deles.
 | `entry_history` | versões anteriores de uma entrada e de onde vieram |
 | `get_glossary` / `add_glossary_terms` | glossário do idioma atual |
 | `import_translation` | importa uma tradução feita à mão na pasta do jogo, comparando com uma cópia limpa (prévia, depois `apply=true`) |
+| `translate_project` | traduz todos os arquivos do projeto com o provedor do app (retoma de onde parou) |
+| `apply_to_game` / `restore_game` | coloca a tradução no jogo (com backup) e devolve os originais |
+| `update_to_new_build` | compara uma build nova e, com `apply=true`, move o projeto para ela |
+| `export_package` / `import_package` | pacote `.stzpack` com as traduções e o glossário de um idioma |
 | `export_xml` | grava o XML traduzido, sem mexer na estrutura |
 
 Erros voltam com um código estável (`error: no_file`, `error: folder_not_found`...).

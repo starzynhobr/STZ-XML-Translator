@@ -1,5 +1,5 @@
 import Select from '@/components/Select'
-import { MessageSquare } from 'lucide-react'
+import { CircleHelp, MessageSquare } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Button, PageHeader, cardClass, cx, fieldClass, providerLabel, providerName } from '@/components/ui'
@@ -13,6 +13,7 @@ interface Props {
   refresh: () => Promise<void>
   onBack: () => void
   onOpenUpdate: () => void
+  onOpenHelp: () => void
 }
 
 const SECTIONS: [string, MessageKey][] = [
@@ -131,7 +132,7 @@ function ApiKeyRow({ provider, onSave }: { provider: Provider; onSave: (key: str
   )
 }
 
-export default function Settings({ state, refresh, onBack, onOpenUpdate }: Props) {
+export default function Settings({ state, refresh, onBack, onOpenUpdate, onOpenHelp }: Props) {
   const t = useT()
   const { settings, update } = state
   const [ollama, setOllama] = useState(settings.ollamaModel)
@@ -228,7 +229,12 @@ export default function Settings({ state, refresh, onBack, onOpenUpdate }: Props
 
   return (
     <div className="flex min-h-full flex-col">
-      <PageHeader title={t('settings')} onBack={onBack} backLabel={t('backToBench')} />
+      <PageHeader title={t('settings')} onBack={onBack} backLabel={state.loaded ? t('backToBench') : t('back')}>
+        <Button onClick={onOpenHelp}>
+          <CircleHelp aria-hidden="true" size={16} />
+          {t('helpTitle')}
+        </Button>
+      </PageHeader>
       <div className="mx-auto flex w-full max-w-[1080px] flex-1 flex-wrap items-start gap-x-10 gap-y-6 px-5 pb-12 pt-8">
         <nav aria-label={t('settings')} className="flex max-w-[220px] flex-[1_1_180px] flex-col gap-0.5 lg:sticky lg:top-6">
           {SECTIONS.map(([id, label]) => (

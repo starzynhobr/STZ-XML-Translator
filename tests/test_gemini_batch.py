@@ -46,10 +46,17 @@ def test_rate_gate_spaces_requests_and_slows_down():
 
 
 def test_retry_after_reads_the_api_hint():
-    assert gemini_batch.retry_after(RuntimeError("HTTP 429: quota. Please retry in 7.5s.")) == 7.5
+    assert gemini_batch.retry_after(RuntimeError("HTTP 429: quota. Please retry in 7.5s.")) == 10.0  # never under MIN_RATE_WAIT
+    assert gemini_batch.retry_after(RuntimeError("HTTP 429: quota. Please retry in 31s.")) == 31.0
     assert gemini_batch.retry_after(RuntimeError("HTTP 429: You exceeded your current quota")) == 20.0
     assert gemini_batch.retry_after(RuntimeError("HTTP 503: overloaded")) is None
-    assert gemini_batch.daily_quota_exhausted(RuntimeError("429 ... GenerateRequestsPerDay limit"))
+    daily = "HTTP 429: You exceeded your current quota [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]"
+    minute = "HTTP 429: You exceeded your current quota [quota: GenerateRequestsPerMinutePerProjectPerModel-FreeTier]"
+    both = "HTTP 429: quota [quota: GenerateRequestsPerMinutePerProjectPerModel-FreeTier, GenerateRequestsPerDayPerProjectPerModel-FreeTier]"
+    assert gemini_batch.daily_quota_exhausted(RuntimeError(daily))
+    assert not gemini_batch.daily_quota_exhausted(RuntimeError(minute))
+    assert not gemini_batch.daily_quota_exhausted(RuntimeError(both))  # the minute one may pass after a wait
+    assert not gemini_batch.daily_quota_exhausted(RuntimeError("HTTP 429: You exceeded your current quota"))
 
 
 def test_parse_accepts_wrapped_arrays():
@@ -225,3 +232,66 @@ def test_closing_the_app_mid_request_leaves_it_pending(tmp_path):
     reopened.load_checkpoint(str(checkpoint))
     assert reopened.entries["/e[1]"].translation == "Feito"
     assert reopened.entries["/e[2]"].status == "pending"
+
+
+def test_a_per_minute_limit_waits_and_carries_on(monkeypatch):
+    monkeypatch.setattr(gemini_batch, "MIN_RATE_WAIT", 0.0)
+    project = TranslationProject()
+    for entry in entries("Sword", "Shield"):
+        project.entries[entry.xpath] = entry
+    worker, _ = make_worker(project, parallel=1)
+    calls = []
+
+    class Model:
+        def generate_content(self, prompt, response_schema=None):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("Gemini API HTTP 429: quota exceeded. Please retry in 0.01s.")
+            items = json.loads(prompt.split("Items: ", 1)[1])
+            return type("R", (), {"text": json.dumps([{"id": i["id"], "text": "ok"} for i in items])})()
+
+    with (
+        patch("core.translation_worker.get_gemini_model", return_value=Model()),
+        patch.object(project, "save_checkpoint", return_value=True),
+    ):
+        worker._run()
+    assert len(calls) == 2
+    assert all(e.status == "translated" for e in project.entries.values())
+
+
+def test_a_spent_daily_quota_stops_with_its_own_error():
+    project = TranslationProject()
+    for entry in entries("Sword"):
+        project.entries[entry.xpath] = entry
+    worker, _ = make_worker(project, parallel=1)
+
+    class Model:
+        def generate_content(self, prompt, response_schema=None):
+            raise RuntimeError("HTTP 429: quota [quota: GenerateRequestsPerDayPerProjectPerModel-FreeTier]")
+
+    with (
+        patch("core.translation_worker.get_gemini_model", return_value=Model()),
+        patch.object(project, "save_checkpoint", return_value=True),
+    ):
+        worker._run()
+    assert project.entries["/e[1]"].error_code == "daily_quota"
+
+
+def test_a_model_without_quota_fails_fast_instead_of_waiting_hours():
+    project = TranslationProject()
+    for entry in entries("Sword"):
+        project.entries[entry.xpath] = entry
+    worker, _ = make_worker(project, parallel=1)
+
+    class Model:
+        def generate_content(self, prompt, response_schema=None):
+            raise RuntimeError("Gemini API HTTP 429: You exceeded your current quota. Please retry in 66305s.")
+
+    started = time.monotonic()
+    with (
+        patch("core.translation_worker.get_gemini_model", return_value=Model()),
+        patch.object(project, "save_checkpoint", return_value=True),
+    ):
+        worker._run()
+    assert time.monotonic() - started < 5
+    assert project.entries["/e[1]"].error_code == "daily_quota"

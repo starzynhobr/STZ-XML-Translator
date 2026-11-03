@@ -49,6 +49,7 @@ export const XML_FILTER: Filter[] = [{ name: 'XML', extensions: ['xml'] }]
 export const JSON_FILTER: Filter[] = [{ name: 'JSON', extensions: ['json'] }]
 export const CSV_FILTER: Filter[] = [{ name: 'CSV', extensions: ['csv'] }]
 export const BACKUP_FILTER: Filter[] = [{ name: 'JSON / CSV', extensions: ['json', 'csv'] }]
+export const PACKAGE_FILTER: Filter[] = [{ name: 'STZ', extensions: ['stzpack'] }]
 
 export function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`

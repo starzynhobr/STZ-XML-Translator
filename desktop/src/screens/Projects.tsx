@@ -1,11 +1,12 @@
-import { AlertTriangle, Check, ChevronRight, Download, FileText, Folder, FolderOpen, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, CircleHelp, Download, FileText, Folder, FolderOpen, Languages, Play, Plus, RotateCcw, Search, SlidersHorizontal, Trash2, Upload } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import Select from '@/components/Select'
-import { Button, IconButton, LogoMark, PageHeader, cardClass, cx, eyebrowClass, fieldClass } from '@/components/ui'
-import { api, setPendingSearch, type EngineState, type GameDetection, type Progress, type ProjectDetail, type ProjectFile, type ProjectSummary, type SearchResult } from '@/lib/bridge'
-import { formatSize, pickFolder } from '@/lib/files'
+import { Button, IconButton, LogoMark, PageHeader, cardClass, cx, eyebrowClass, fieldClass, providerLabel } from '@/components/ui'
+import { EngineError, api, setPendingSearch, type EngineState, type JobState, type GameDetection, type Progress, type ProjectDetail, type ProjectFile, type ProjectSummary, type SearchResult } from '@/lib/bridge'
+import { PACKAGE_FILTER, formatSize, pickFile, pickFolder, pickSavePath } from '@/lib/files'
 import { errorText, useT } from '@/lib/i18n'
+import type { MessageKey } from '@/lib/messages'
 
 /** The XML folder as seen from the game install, e.g. "MAA Redux_Data\StreamingAssets\XMLs". */
 function insideGame(root: string, folder: string) {
@@ -65,11 +66,12 @@ interface HomeProps {
   state: EngineState
   refresh: () => Promise<void>
   onOpenXml: () => void
+  onOpenHelp: () => void
   onOpenSettings: () => void
   onOpenGlossary: () => void
 }
 
-export function ProjectsHome({ state, refresh, onOpenXml, onOpenSettings, onOpenGlossary }: HomeProps) {
+export function ProjectsHome({ state, refresh, onOpenXml, onOpenHelp, onOpenSettings, onOpenGlossary }: HomeProps) {
   const t = useT()
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
   const [draft, setDraft] = useState<{ game: GameDetection | null; name: string; target: string } | null>(null)
@@ -134,6 +136,10 @@ export function ProjectsHome({ state, refresh, onOpenXml, onOpenSettings, onOpen
         <LogoMark />
         <span className="font-semibold tracking-[-0.01em]">XML Translator</span>
         <div className="flex-1" />
+        <Button onClick={onOpenHelp}>
+          <CircleHelp aria-hidden="true" size={16} />
+          {t('helpTitle')}
+        </Button>
         <Button onClick={onOpenGlossary}>{t('glossary')}</Button>
         <IconButton label={t('settings')} onClick={onOpenSettings}>
           <SlidersHorizontal aria-hidden="true" size={18} />
@@ -358,15 +364,225 @@ function ImportPanel({ state, hasOriginals, busy, run, onApplied }: {
   )
 }
 
+const JOB_RUNNING: Record<NonNullable<JobState['kind']>, MessageKey> = {
+  apply: 'jobApplying',
+  play: 'jobApplying',
+  restore: 'jobRestoring',
+  export: 'jobExporting',
+  translate: 'jobTranslating',
+  update: 'jobComparing',
+}
+
+/** Progress and outcome of the project's long operation. */
+function JobPanel({ job, busy, run, onFinished }: {
+  job: JobState
+  busy: boolean
+  run: (action: () => Promise<unknown>) => Promise<void>
+  onFinished: () => void
+}) {
+  const t = useT()
+  if (job.status === 'idle' || !job.kind) return null
+  const result = (job.result ?? {}) as Record<string, number>
+  const dismiss = () => void run(async () => { await api('/api/job/dismiss', 'POST'); onFinished() })
+
+  if (job.status === 'running') {
+    const total = job.total || 1
+    return (
+      <div role="status" className={cx(cardClass, 'flex flex-col gap-2.5 px-4 py-3.5')}>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold">
+            {job.cancelling ? t('jobCancelling') : t(JOB_RUNNING[job.kind], { done: job.done ?? 0, total: job.total ?? 0 })}
+          </span>
+          {job.file && !job.cancelling && <span className="truncate font-mono text-xs text-dim">{job.file}</span>}
+          <span className="flex-1" />
+          {job.kind === 'translate' && (
+            <Button className="min-h-9" disabled={job.cancelling} onClick={() => void run(() => api('/api/job/cancel', 'POST'))}>
+              {job.cancelling ? t('cancellingShort') : t('cancel')}
+            </Button>
+          )}
+        </div>
+        {job.cancelling && <p className="m-0 text-[13px] text-dim">{t('jobCancellingNote')}</p>}
+        <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-track">
+          <div className="h-full bg-accent transition-[width]" style={{ width: `${((job.done ?? 0) / total) * 100}%` }} />
+        </div>
+      </div>
+    )
+  }
+
+  if (job.status === 'error') {
+    return (
+      <div role="alert" className={cx(cardClass, 'flex flex-wrap items-center gap-3 border-warn px-4 py-3.5')}>
+        <AlertTriangle aria-hidden="true" size={16} className="text-warn" />
+        <span className="min-w-0 flex-1 text-sm">{errorText(t, new EngineError(job.error || 'unknown'))}</span>
+        <Button className="min-h-9" onClick={dismiss}>{t('ok')}</Button>
+      </div>
+    )
+  }
+
+  if (job.kind === 'update' && job.status === 'done') {
+    const files = (job.result?.files ?? []) as { file: string; changed: number; moved: number; removed: number }[]
+    return (
+      <div className={cx(cardClass, 'flex flex-col gap-3 border-accent px-4 py-4')}>
+        <div className="font-semibold">{t('updateSummary', { kept: result.kept ?? 0, changed: result.changed ?? 0, moved: result.moved ?? 0, added: result.new ?? 0 })}</div>
+        {files.length > 0 && (
+          <ul className="m-0 max-h-[200px] list-none overflow-y-auto p-0 text-[13px]">
+            {files.map((file) => (
+              <li key={file.file} className="flex justify-between gap-4 py-1">
+                <span className="truncate font-mono">{file.file}</span>
+                <span className="shrink-0 text-dim">{t('updateFileLine', { changed: file.changed, moved: file.moved, removed: file.removed })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="m-0 text-[13px] text-dim">{t('updateNote')}</p>
+        <div className="flex flex-wrap gap-2.5">
+          <Button variant="primary" disabled={busy} onClick={() => void run(async () => { await api('/api/project/update/apply', 'POST'); onFinished() })}>{t('updateApply')}</Button>
+          <Button disabled={busy} onClick={dismiss}>{t('cancel')}</Button>
+        </div>
+      </div>
+    )
+  }
+
+  const done: Record<string, string> = {
+    apply: t('jobApplied', { f: result.files ?? 0, n: result.texts ?? 0 }),
+    play: t('jobApplied', { f: result.files ?? 0, n: result.texts ?? 0 }),
+    restore: t('jobRestored', { f: result.files ?? 0 }),
+    export: t('jobExported', { f: result.files ?? 0, n: result.texts ?? 0 }),
+    translate: t('jobTranslated', { f: result.files ?? 0, n: result.texts ?? 0 }),
+    update: '',
+  }
+  return (
+    <div role="status" className={cx(cardClass, 'flex flex-wrap items-center gap-3 px-4 py-3.5')}>
+      <Check aria-hidden="true" size={16} className="text-accent" />
+      <span className="min-w-0 flex-1 text-sm">{job.status === 'cancelled' ? t('jobCancelled') : done[job.kind]}</span>
+      <Button className="min-h-9" onClick={dismiss}>{t('ok')}</Button>
+    </div>
+  )
+}
+
+/** Translate the whole game, put it in the game, and the version/sharing tools. */
+function GameActions({ state, detail, busy, run }: {
+  state: EngineState
+  detail: ProjectDetail
+  busy: boolean
+  run: (action: () => Promise<unknown>) => Promise<void>
+}) {
+  const t = useT()
+  const working = busy || state.job.status === 'running' || state.import.status === 'running'
+  const { summary } = detail
+  // Translating everything spends quota for a long while: say what will happen first.
+  const [confirming, setConfirming] = useState(false)
+  const engine = state.settings.provider === 'Gemini' ? `Gemini · ${state.settings.model.replace(/^Gemini\s+/, '')}` : providerLabel(state.settings.provider, t)
+  const play = useCallback(() => {
+    if (!working && detail.gameExe) void run(() => api('/api/game/apply', 'POST', { launch: true }))
+  }, [working, detail.gameExe, run])
+
+  // F5: apply and start the game, like a test run in an editor (and never a page reload).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'F5') return
+      event.preventDefault()
+      play()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [play])
+
+  const pickAndRun = async (endpoint: string, picker: () => Promise<string | null>) => {
+    const path = await picker()
+    if (path) await run(() => api(endpoint, 'POST', { path }))
+  }
+  const exportPackage = async () => {
+    const path = await pickSavePath(`${detail.name}-${state.settings.target}.stzpack`, PACKAGE_FILTER)
+    if (!path) return
+    await run(async () => {
+      const result = await api<{ files: number; texts: number }>('/api/project/package/export', 'POST', { path })
+      toast.success(t('packageExported', { n: result.texts }))
+    })
+  }
+  const importPackage = async () => {
+    const path = await pickFile(PACKAGE_FILTER)
+    if (!path) return
+    await run(async () => {
+      const result = await api<{ imported: number; conflicts: number; glossaryAdded: number }>('/api/project/package/import', 'POST', { path })
+      toast.success(t('packageImported', { n: result.imported, c: result.conflicts, g: result.glossaryAdded }))
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className={cx(cardClass, 'flex flex-wrap items-center gap-2.5 px-4 py-3.5')}>
+        <div className="min-w-0 flex-[1_1_240px]">
+          <div className="text-sm font-semibold">{t('gameActionsTitle')}</div>
+          <div className="text-[13px] text-dim">
+            {detail.applied ? t('gameApplied') : t('gameActionsBody', { n: summary.translated })}
+          </div>
+        </div>
+        <Button variant="primary" disabled={working || confirming} onClick={() => setConfirming(true)}>
+          <Languages aria-hidden="true" size={16} />
+          {t('translateProject')}
+        </Button>
+        <Button disabled={working || !summary.translated} onClick={() => void run(() => api('/api/game/apply', 'POST', {}))}>
+          <Upload aria-hidden="true" size={16} />
+          {t('applyToGame')}
+        </Button>
+        {detail.gameExe && (
+          <Button disabled={working || !summary.translated} onClick={play} title={detail.gameExe}>
+            <Play aria-hidden="true" size={16} />
+            {t('applyAndPlay')}
+            <span className="rounded-[5px] bg-black/15 px-1.5 py-0.5 font-mono text-[11px]">F5</span>
+          </Button>
+        )}
+        {detail.applied && (
+          <Button disabled={working} onClick={() => void run(() => api('/api/game/restore', 'POST'))}>
+            <RotateCcw aria-hidden="true" size={16} />
+            {t('restoreGame')}
+          </Button>
+        )}
+      </div>
+      {confirming && (
+        <div role="dialog" aria-label={t('confirmTranslateTitle')} className={cx(cardClass, 'flex flex-col gap-3 border-accent px-4 py-4')}>
+          <div className="font-semibold">{t('confirmTranslateTitle')}</div>
+          <ul className="m-0 flex list-disc flex-col gap-1 pl-5 text-[13px] text-soft">
+            <li>{t('confirmTranslateFiles', { f: summary.files, s: summary.started })}</li>
+            <li>{t('confirmTranslateEngine', { engine })}</li>
+            <li>{t('confirmTranslateResume')}</li>
+          </ul>
+          <p className="m-0 flex gap-2 text-[13px] text-warn">
+            <AlertTriangle aria-hidden="true" size={15} className="mt-0.5 shrink-0" />
+            {t('confirmTranslateQuota')}
+          </p>
+          <div className="flex flex-wrap gap-2.5">
+            <Button variant="primary" disabled={working} onClick={() => { setConfirming(false); void run(() => api('/api/project/translate', 'POST')) }}>
+              {t('confirmTranslateStart')}
+            </Button>
+            <Button onClick={() => setConfirming(false)}>{t('cancel')}</Button>
+          </div>
+        </div>
+      )}
+      <details className="group text-[13px]">
+        <summary className="cursor-pointer select-none text-soft hover:text-ink">{t('moreTools')}</summary>
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          <Button className="min-h-9 text-[13px]" disabled={working} onClick={() => void pickAndRun('/api/project/update', pickFolder)}>{t('newGameVersion')}</Button>
+          <Button className="min-h-9 text-[13px]" disabled={working || !summary.translated} onClick={() => void pickAndRun('/api/project/export-xmls', pickFolder)}>{t('exportXmls')}</Button>
+          <Button className="min-h-9 text-[13px]" disabled={working || !summary.translated} onClick={() => void exportPackage()}>{t('exportPackage')}</Button>
+          <Button className="min-h-9 text-[13px]" disabled={working} onClick={() => void importPackage()}>{t('importPackage')}</Button>
+        </div>
+      </details>
+    </div>
+  )
+}
+
 interface ViewProps {
   state: EngineState
   refresh: () => Promise<void>
   onPickFile: (path: string) => void
+  onOpenHelp: () => void
   onOpenSettings: () => void
   onOpenGlossary: () => void
 }
 
-export function ProjectView({ state, refresh, onPickFile, onOpenSettings, onOpenGlossary }: ViewProps) {
+export function ProjectView({ state, refresh, onPickFile, onOpenHelp, onOpenSettings, onOpenGlossary }: ViewProps) {
   const t = useT()
   const id = state.project?.id ?? ''
   const [detail, setDetail] = useState<ProjectDetail | null>(null)
@@ -379,8 +595,8 @@ export function ProjectView({ state, refresh, onPickFile, onOpenSettings, onOpen
     if (id) void api<ProjectDetail>(`/api/projects/${id}`).then(setDetail, fail)
   }, [id, fail])
 
-  // Progress changes while a file is open; refetch whenever the project comes back.
-  useEffect(reload, [reload, state.settings.target])
+  // Progress changes while a file is open or a whole-project job runs: refetch when either ends.
+  useEffect(reload, [reload, state.settings.target, state.job.status])
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true)
@@ -462,6 +678,10 @@ export function ProjectView({ state, refresh, onPickFile, onOpenSettings, onOpen
             options={Object.entries(state.settings.targets).map(([label, value]) => ({ value, label }))}
           />
         </span>
+        <Button onClick={onOpenHelp}>
+          <CircleHelp aria-hidden="true" size={16} />
+          {t('helpTitle')}
+        </Button>
         <Button onClick={onOpenGlossary}>{t('glossary')}</Button>
         <IconButton label={t('settings')} onClick={onOpenSettings}>
           <SlidersHorizontal aria-hidden="true" size={18} />
@@ -482,6 +702,12 @@ export function ProjectView({ state, refresh, onPickFile, onOpenSettings, onOpen
         {detail && !detail.folderExists && <p className="m-0 text-dim">{t('folderMissingBody')}</p>}
         {detail && detail.folderExists && detail.files.length > 0 && (
           <ImportPanel state={state} hasOriginals={detail.hasOriginals} busy={busy} run={run} onApplied={reload} />
+        )}
+        {detail && detail.folderExists && detail.files.length > 0 && (
+          <>
+            <JobPanel job={state.job} busy={busy} run={run} onFinished={reload} />
+            <GameActions state={state} detail={detail} busy={busy} run={run} />
+          </>
         )}
         {detail && detail.folderExists && detail.files.length > 0 && (
           <>

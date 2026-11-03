@@ -275,6 +275,67 @@ def build_server(session: Any) -> Any:
             return {key: state[key] for key in ("found", "texts", "missing", "files")}
         return guard(run)
 
+    def wait_job(wait_seconds: int) -> dict:
+        deadline = time.time() + max(0, wait_seconds)
+        while time.time() < deadline and session.job_state()["status"] == "running":
+            time.sleep(0.3)
+        state = session.job_state()
+        if state["status"] == "error":
+            raise ToolError(f"error: {state.get('error') or 'unknown'}")
+        return state
+
+    @server.tool()
+    def translate_project(wait_seconds: int = 3600) -> dict:
+        """Translate every pending text of every file of the open project with the app's provider.
+
+        Files never opened get the suggested fields. Stops on a spent quota or a bad key;
+        call again later to resume where it stopped.
+        """
+        def run() -> dict:
+            session.translate_project()
+            return wait_job(wait_seconds)
+        return guard(run)
+
+    @server.tool()
+    def apply_to_game(launch: bool = False, confirmed_only: bool = False) -> dict:
+        """Write the translated files into the game folder; the replaced files are kept for restore_game."""
+        def run() -> dict:
+            session.apply_to_game(confirmed_only, launch)
+            return wait_job(600)
+        return guard(run)
+
+    @server.tool()
+    def restore_game() -> dict:
+        """Put the game's original files back."""
+        def run() -> dict:
+            session.restore_game()
+            return wait_job(600)
+        return guard(run)
+
+    @server.tool()
+    def update_to_new_build(game_folder: str, apply: bool = False) -> dict:
+        """Compare a new build of the game with the project; with apply=true, move the project to it.
+
+        Unchanged texts keep their translation; changed or moved ones keep it as "to review".
+        """
+        def run() -> dict:
+            if apply and session.job_state().get("kind") == "update" and session.job_state()["status"] == "done":
+                return session.apply_update()
+            session.start_update(game_folder)
+            state = wait_job(900)
+            return session.apply_update() if apply else state.get("result", {})
+        return guard(run)
+
+    @server.tool()
+    def export_package(output_path: str) -> dict:
+        """Write a .stzpack with this language's translations and glossary for another translator."""
+        return guard(lambda: session.export_package(output_path))
+
+    @server.tool()
+    def import_package(package_path: str) -> dict:
+        """Import a .stzpack into the open project; texts already translated here are never overwritten."""
+        return guard(lambda: session.import_package(package_path))
+
     @server.tool()
     def export_xml(output_path: str) -> dict:
         """Write the loaded file with its translations to output_path; structure and other text stay intact."""

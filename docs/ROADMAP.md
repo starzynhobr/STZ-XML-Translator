@@ -134,49 +134,45 @@ ser copiados quase direto do GF UI Editor.
       (aviso se alguém marcar um para traduzir), prévia com registros que têm texto.
 - Resultado no MAA: 103.232 textos em 71 dos 76 XMLs, sem IDs nem caminhos.
 
-### Fase 2 — Modo pasta / jogo inteiro
-- [ ] Barra lateral com a árvore de arquivos e o progresso de cada um
-      (ex.: `characters.xml 120/340`), com os alterados no topo.
-- [ ] Fila global: um único "Traduzir pendentes" para o projeto inteiro ou para um filtro.
-- [ ] Contagem de textos por arquivo já na lista do projeto (análise em segundo
-      plano, com cache por tamanho/data do arquivo).
-- [ ] **Deduplicação:** um texto idêntico é traduzido uma vez e replicado
-      (`bio` = `cogBio`, `name` = `dispName`). A base já existe em `apply_translation_to_duplicates`.
+### Fase 2 — Jogo inteiro (feito)
+- [x] **Traduzir projeto inteiro**: uma fila que passa por todos os XMLs do projeto,
+      sem abrir arquivo por arquivo. Arquivos nunca abertos usam os campos sugeridos
+      (e passam a lembrá-los). Progresso por arquivo, cancelamento a qualquer momento.
+- [x] Para numa cota esgotada ou chave inválida; rodar de novo continua de onde parou.
+- [x] Deduplicação, nomes primeiro e pedidos em paralelo (Gemini) valem para a fila.
+- [x] Busca no projeto inteiro e progresso por arquivo na lista (SQLite).
 
-**Viabilidade:** alta. É a mudança que mais reduz tempo e custo de IA no MAA.
+### Fase 3 — Testar no jogo (feito)
+- [x] **Aplicar no jogo**: grava os arquivos traduzidos na pasta do jogo, gerados a
+      partir dos originais guardados + traduções do banco. O arquivo que estava no jogo
+      é guardado na primeira vez (`projects/<id>/game-backup/`).
+- [x] **Restaurar jogo original** com um clique.
+- [x] **Aplicar e abrir o jogo (F5)**: aplica e inicia o executável do jogo
+      (detectado pela pasta `*_Data` da Unity).
+- [x] Sem originais guardados, eles são copiados do jogo antes da primeira aplicação,
+      para o app nunca ler a tradução como se fosse o original.
 
-### Fase 3 — Testar no jogo (como o F5 do GF UI Editor)
-- [ ] **Aplicar no jogo:** grava os XMLs traduzidos na pasta do jogo e guarda os
-      originais em `.history/` (restauração com um clique).
-- [ ] **Restaurar original**, para voltar a pasta do jogo ao estado da build.
-- [ ] Atalho F5 = aplicar + abrir o executável do jogo (caminho configurável).
+### Fase 4 — Builds novas do jogo (feito)
+- [x] **Nova versão do jogo…**: compara a build nova com o projeto, arquivo por arquivo:
+      iguais (tradução vale), alterados (mesmo lugar, texto parecido: tradução anterior
+      "a revisar"), movidos (mesmo texto em outro lugar: tradução reaproveitada "a
+      revisar") e novos (pendentes).
+- [x] Relatório antes de aplicar; ao aplicar, a build nova vira a base do projeto.
+- [x] Recusa comparar a pasta do jogo enquanto ela tem a tradução aplicada.
 
-**Viabilidade:** alta. São só operações de arquivo. Atenção: o `injetor` precisa
-manter o encoding e a declaração XML exatos (UTF-8 no MAA).
+### Fase 5 — Qualidade (parcial, decisão)
+- [x] Memória de tradução por idioma e regras de localização nos prompts.
+- **Decisão:** sem glossário "pronto" por jogo: o app traduz para vários idiomas e
+  manter glossários prontos para todos não escala. Nomes ficam consistentes pela fase
+  "nomes primeiro"; o glossário do usuário continua tendo prioridade.
+- [ ] Verificações automáticas (tags `<b>`, placeholders, tamanho) — opcional.
 
-### Fase 4 — Builds novas do jogo
-- [ ] **Atualizar base:** apontar para a pasta de uma build nova. O app compara com `source/`
-      e mostra os arquivos e entradas novos, alterados e removidos.
-- [ ] O status "Original alterado" mostra a tradução anterior para revisar.
-- [ ] Relatório da atualização: X novas, Y alteradas, Z reaproveitadas.
-
-**Viabilidade:** média-alta. Depende da identidade estável descrita acima. Os devs
-do MAA ainda estão movendo textos para os XMLs, então esse é o fluxo que mais
-vai se repetir.
-
-### Fase 5 — Memória de tradução e qualidade
-- [ ] Memória de tradução por idioma, compartilhada entre os arquivos do projeto,
-      com sugestões de textos parecidos.
-- [ ] Glossário pronto para o MAA (heróis, vilões, organizações), importável.
-- [ ] Verificações automáticas: tags `<b>`, placeholders e `\n` preservados; tamanho
-      muito maior que o original (risco de estourar a UI); termos do glossário ignorados.
-
-### Fase 6 — Compartilhar e colaborar (opcional)
-- [ ] Exportar o projeto como `.stzproj` (zip com o `project.db` e sem a pasta do jogo).
-- [ ] Exportar só a tradução de um idioma num pacote pronto para os devs / a comunidade.
-- [ ] Importar o pacote de outro tradutor e fazer merge por entrada, resolvendo conflitos.
-
----
+### Fase 6 — Compartilhar (feito)
+- [x] **Exportar XMLs traduzidos** para uma pasta (para os devs ou a comunidade).
+- [x] **Pacote de tradução** (`.stzpack`): traduções de um idioma + glossário.
+- [x] **Importar pacote**: entra como "a revisar", nunca sobrescreve o que já está
+      traduzido no projeto (conflitos são contados e mantidos), glossário completa os
+      termos que faltam.
 
 ## Armazenamento em SQLite
 
@@ -243,7 +239,7 @@ entries_fts  -- FTS5 sobre original + tradução: busca instantânea no jogo tod
 ## Integração com agentes de código (MCP)
 
 **Feito:** `engine/mcp_server.py` (SDK oficial `mcp` 2.x, extra `[mcp]` do
-`pyproject`), 16 ferramentas sobre a mesma `Session`. Como configurar e a lista
+`pyproject`), 23 ferramentas sobre a mesma `Session`. Como configurar e a lista
 de ferramentas estão em [MCP.md](MCP.md). Traduções do agente entram no
 histórico como "Agente".
 
