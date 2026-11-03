@@ -169,6 +169,20 @@ def create_app(session: Session, token: str) -> FastAPI:
     def detect_game(body: PathBody) -> dict:
         return session.detect_game(body.path)
 
+    @app.post("/api/import/start", dependencies=auth)
+    def start_import(body: PathBody) -> dict:
+        session.start_import(body.path)
+        return ok
+
+    @app.post("/api/import/apply", dependencies=auth)
+    def apply_import() -> dict:
+        return session.apply_import()
+
+    @app.post("/api/import/cancel", dependencies=auth)
+    def cancel_import() -> dict:
+        session.cancel_import()
+        return ok
+
     @app.post("/api/projects/close", dependencies=auth)
     def close_project() -> dict:
         session.close_project()

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import time
 import uuid
 from collections.abc import Callable, Sequence
@@ -44,6 +45,10 @@ class Project:
     updated_at: float
     game_root: str = ""
     last_file: str = ""
+    # Clean copy of the game's XMLs kept with the project (see core.importer).
+    # When present, files open from here so the original is always the
+    # untranslated text, even if the game folder was edited by hand.
+    source_folder: str = ""
     # Record tags chosen for each file (relative path), in load order.
     selections: dict[str, list[Group]] = field(default_factory=dict)
 
@@ -69,19 +74,36 @@ class Project:
             created_at=float(data.get("created_at", 0)),
             updated_at=float(data.get("updated_at", 0)),
             game_root=str(data.get("game_root", "")),
+            source_folder=str(data.get("source_folder", "")),
             last_file=str(data.get("last_file", "")),
             selections=selections,
         )
 
     def relative(self, xml_path: str) -> str | None:
-        """Path of ``xml_path`` inside the project folder, or None when outside it."""
-        try:
-            rel = os.path.relpath(os.path.abspath(xml_path), os.path.abspath(self.folder))
-        except ValueError:  # another drive on Windows
-            return None
-        if rel.startswith(".."):
-            return None
-        return rel.replace("\\", "/")
+        """Path of ``xml_path`` inside the game or originals folder, or None when outside both."""
+        for base in (self.folder, self.source_folder):
+            if base and (rel := relative_to(xml_path, base)) is not None:
+                return rel
+        return None
+
+    def open_path(self, rel: str) -> str:
+        """The file to translate: the kept original when there is one, else the game's."""
+        if self.source_folder:
+            kept = os.path.join(self.source_folder, rel)
+            if os.path.isfile(kept):
+                return kept
+        return os.path.join(self.folder, rel)
+
+
+def relative_to(path: str, base: str) -> str | None:
+    """``path`` relative to ``base`` with forward slashes, or None when outside it."""
+    try:
+        rel = os.path.relpath(os.path.abspath(path), os.path.abspath(base))
+    except ValueError:  # another drive on Windows
+        return None
+    if rel.startswith(".."):
+        return None
+    return rel.replace("\\", "/")
 
 
 class ProjectStore:
@@ -158,6 +180,22 @@ class ProjectStore:
             os.remove(self._path(project_id))
         except FileNotFoundError:
             pass
+        shutil.rmtree(self.data_dir(project_id), ignore_errors=True)
+
+    def data_dir(self, project_id: str) -> str:
+        """Folder for a project's own files, such as its kept originals."""
+        self._path(project_id)  # validates the id
+        return os.path.join(self.root, project_id)
+
+    def keep_originals(self, project_id: str, source_folder: str, groups: dict[str, list[Group]]) -> Project:
+        """Record the kept originals and the tags used for files not opened yet."""
+        project = self.get(project_id)
+        project.source_folder = source_folder
+        for rel, file_groups in groups.items():
+            if file_groups and rel not in project.selections:
+                project.selections[rel] = list(file_groups)
+        project.updated_at = time.time()
+        return self.save(project)
 
     def remember(
         self,
@@ -349,7 +387,7 @@ def file_rows(
     """
     rows = []
     for rel in xml_files(project.folder):
-        path = os.path.join(project.folder, rel)
+        path = project.open_path(rel)
         groups = project.selections.get(rel) or []
         progress = progress_of(rel) if progress_of else None
         if progress is None and groups:

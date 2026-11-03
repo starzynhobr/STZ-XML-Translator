@@ -253,6 +253,29 @@ def build_server(session: Any) -> Any:
         return guard(run)
 
     @server.tool()
+    def import_translation(clean_folder: str, apply: bool = False, wait_seconds: int = 300) -> dict:
+        """Import a translation made by editing the game's XMLs by hand (open project only).
+
+        clean_folder is an untranslated copy of the game. Every text that differs in the
+        project's game folder becomes a translation "to review". With apply=false this only
+        returns the summary; call again with apply=true to save it and keep the originals.
+        """
+        def run() -> dict:
+            state = session.import_state()
+            if not (apply and state.get("status") == "ready"):
+                session.start_import(clean_folder)
+                deadline = time.time() + max(0, wait_seconds)
+                while time.time() < deadline and session.import_state()["status"] == "running":
+                    time.sleep(0.2)
+                state = session.import_state()
+            if state["status"] != "ready":
+                return state
+            if apply:
+                return session.apply_import()
+            return {key: state[key] for key in ("found", "texts", "missing", "files")}
+        return guard(run)
+
+    @server.tool()
     def export_xml(output_path: str) -> dict:
         """Write the loaded file with its translations to output_path; structure and other text stay intact."""
         def run() -> dict:

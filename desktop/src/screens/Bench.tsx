@@ -225,6 +225,18 @@ export default function Bench({ state, entries, terms, refresh, onOpenStart, onO
     if (!selected && visible.length) setSelectedId(visible[0].id)
   }, [selected, visible])
 
+  // A new filter, search or field shows its own first entry instead of one it hides.
+  // Only then: an entry that leaves the list after an edit stays in front of the user.
+  const shownIds = useRef(new Set<string>())
+  shownIds.current = new Set(visible.map((entry) => entry.id))
+  useEffect(() => {
+    if (selectedId && !shownIds.current.has(selectedId) && visible.length) {
+      setSelectedId(visible[0].id)
+      scroller.current?.scrollTo({ top: 0 })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, query, field])
+
   // The engine owns the text; mirror it unless the user is mid-edit.
   useEffect(() => {
     if (!editing.current) setDraft(selected?.translation ?? '')

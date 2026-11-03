@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, FileText, Folder, FolderOpen, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, Download, FileText, Folder, FolderOpen, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import Select from '@/components/Select'
@@ -273,6 +273,91 @@ export function ProjectsHome({ state, refresh, onOpenXml, onOpenSettings, onOpen
   )
 }
 
+/** Brings in translations someone made by editing the game's XMLs directly. */
+function ImportPanel({ state, hasOriginals, busy, run, onApplied }: {
+  state: EngineState
+  hasOriginals: boolean
+  busy: boolean
+  run: (action: () => Promise<unknown>) => Promise<void>
+  onApplied: () => void
+}) {
+  const t = useT()
+  const job = state.import
+  const start = async () => {
+    const folder = await pickFolder()
+    if (folder) await run(() => api('/api/import/start', 'POST', { path: folder }))
+  }
+
+  if (job.status === 'running') {
+    const total = job.total || 1
+    return (
+      <div role="status" className={cx(cardClass, 'flex flex-col gap-2.5 px-4 py-3.5')}>
+        <span className="text-sm font-semibold">{t('importComparing', { done: job.done ?? 0, total: job.total ?? 0 })}</span>
+        <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-track">
+          <div className="h-full bg-accent transition-[width]" style={{ width: `${((job.done ?? 0) / total) * 100}%` }} />
+        </div>
+      </div>
+    )
+  }
+
+  if (job.status === 'ready') {
+    const files = (job.files ?? []).filter((file) => file.found > 0)
+    return (
+      <div className={cx(cardClass, 'flex flex-col gap-3 border-accent px-4 py-4')}>
+        <div className="font-semibold">
+          {job.found ? t('importFound', { n: job.found, f: files.length }) : t('importNothing')}
+        </div>
+        {files.length > 0 && (
+          <ul className="m-0 max-h-[220px] list-none overflow-y-auto p-0 text-[13px]">
+            {files.map((file) => (
+              <li key={file.file} className="flex justify-between gap-4 py-1">
+                <span className="truncate font-mono">{file.file}</span>
+                <span className="shrink-0 text-dim">{t('fileProgress', { t: file.found, n: file.texts })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {(job.missing ?? 0) > 0 && <p className="m-0 text-[13px] text-dim">{t('importMissing', { n: job.missing ?? 0 })}</p>}
+        <p className="m-0 flex gap-2 text-[13px] text-warn">
+          <AlertTriangle aria-hidden="true" size={15} className="mt-0.5 shrink-0" />
+          {t('importReviewNote')}
+        </p>
+        <div className="flex flex-wrap gap-2.5">
+          <Button variant="primary" disabled={busy || !job.found} onClick={() => void run(async () => { await api('/api/import/apply', 'POST'); onApplied() })}>
+            {t('importApply', { n: job.found ?? 0 })}
+          </Button>
+          <Button disabled={busy} onClick={() => void run(() => api('/api/import/cancel', 'POST'))}>{t('cancel')}</Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (hasOriginals) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-dim">
+        <Check aria-hidden="true" size={15} className="text-accent" />
+        <span>{t('originalsKept')}</span>
+        <button type="button" disabled={busy} onClick={() => void start()} className="text-soft underline-offset-2 hover:text-ink hover:underline">
+          {t('importAgain')}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cx(cardClass, 'flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3.5')}>
+      <div className="min-w-0 flex-[1_1_320px]">
+        <div className="text-sm font-semibold">{t('importTitle')}</div>
+        <div className="text-[13px] text-dim">{job.status === 'error' ? t('importFailed') : t('importBody')}</div>
+      </div>
+      <Button disabled={busy} onClick={() => void start()}>
+        <Download aria-hidden="true" size={16} />
+        {t('importButton')}
+      </Button>
+    </div>
+  )
+}
+
 interface ViewProps {
   state: EngineState
   refresh: () => Promise<void>
@@ -395,6 +480,9 @@ export function ProjectView({ state, refresh, onPickFile, onOpenSettings, onOpen
           />
         )}
         {detail && !detail.folderExists && <p className="m-0 text-dim">{t('folderMissingBody')}</p>}
+        {detail && detail.folderExists && detail.files.length > 0 && (
+          <ImportPanel state={state} hasOriginals={detail.hasOriginals} busy={busy} run={run} onApplied={reload} />
+        )}
         {detail && detail.folderExists && detail.files.length > 0 && (
           <>
             {last && (

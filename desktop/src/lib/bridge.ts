@@ -119,6 +119,19 @@ export interface EngineState {
   log: LogLine[]
   settings: Settings
   update: UpdateInfo
+  import: ImportState
+}
+
+/** Comparing a clean copy of the game with the hand-edited XMLs. */
+export interface ImportState {
+  status: 'idle' | 'running' | 'ready' | 'error'
+  folder?: string
+  done?: number
+  total?: number
+  files?: { file: string; texts: number; found: number; problem: '' | 'missing' | 'invalid' }[]
+  found?: number
+  texts?: number
+  missing?: number
 }
 
 export interface OpenedXml {
@@ -187,6 +200,7 @@ export interface ProjectSummary {
   name: string
   folder: string
   gameRoot: string
+  hasOriginals: boolean
   profile: string
   folderExists: boolean
   target: string

@@ -234,6 +234,7 @@
   "expand_structure": "XML構造を展開",
   "log_api_key_needed": "APIキーが必要です。キーアイコンをクリックして設定してください。",
   "log_load_success": "'{filename}' を読み込みました — {count} 件のエントリ。",
+  "log_import_applied": "翻訳をインポートしました: {n} 件を確認待ちとして保存。原文はプロジェクトに保存されました。",
   "resize_columns_hint": "ドラッグして列幅を変更します。ダブルクリックで元に戻します。",
   "table_search_placeholder": "原文、翻訳、タグ、コンテキストを検索",
   "table_search_results": "%2件中%1件",

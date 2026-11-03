@@ -95,7 +95,21 @@ deixa de ser o caminho absoluto e passa a ser
       arquivo, busca, **Continuar** no último arquivo e **Trocar pasta** quando
       o jogo é reinstalado.
 - [x] Campos lembrados por arquivo: na segunda vez o arquivo abre direto na tradução.
-- [ ] Cópia dos originais para `source/` (snapshot da build), necessária para a Fase 4.
+- [x] Cópia dos originais guardada no projeto (`projects/<id>/originals/`): feita pela
+      importação abaixo; com ela, os arquivos abrem sempre do inglês. Base para a Fase 4.
+
+### Fase 1.6 — Importar tradução feita fora do app (feito)
+- [x] Quem já traduziu editando os XMLs à mão escolhe uma cópia limpa do jogo
+      (qualquer nível da pasta). O app compara arquivo por arquivo, posição por
+      posição no XML, com os campos do projeto (ou os sugeridos).
+- [x] Prévia com o que foi encontrado por arquivo, arquivos sem cópia limpa e o aviso
+      de que tudo entra como "a revisar" (uma cópia de outra build faria textos
+      alterados pelos devs parecerem traduzidos).
+- [x] Ao confirmar: os originais ficam no projeto, as traduções vão para o banco com a
+      origem "Importado", e nada traduzido no app é sobrescrito. A pasta do jogo não
+      é alterada.
+- [x] Roda em segundo plano com progresso (o MAA inteiro leva ~20 s) e também pelo MCP
+      (`import_translation`).
 - [x] Escolher o idioma ao criar o projeto e trocar na tela do projeto.
 
 **Viabilidade:** alta. O engine (`engine/session.py`) já centraliza estado e persistência,
@@ -229,7 +243,7 @@ entries_fts  -- FTS5 sobre original + tradução: busca instantânea no jogo tod
 ## Integração com agentes de código (MCP)
 
 **Feito:** `engine/mcp_server.py` (SDK oficial `mcp` 2.x, extra `[mcp]` do
-`pyproject`), 15 ferramentas sobre a mesma `Session`. Como configurar e a lista
+`pyproject`), 16 ferramentas sobre a mesma `Session`. Como configurar e a lista
 de ferramentas estão em [MCP.md](MCP.md). Traduções do agente entram no
 histórico como "Agente".
 

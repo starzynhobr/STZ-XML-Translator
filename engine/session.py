@@ -24,6 +24,7 @@ from core.extrator import Group, XmlDocumentIndex, _local_name
 from core.game_profiles import GENERIC, GameProfile, TagPlan, plan, profile_for
 from core.i18n import I18nManager
 from core.project import EntryStatus, TranslationProject
+from core.importer import compare, keep_originals, store_found
 from core.workspace import Project, ProjectStore, detect_game, file_rows, summarize
 from core.tradutor_api import carregar_glossario, glossary_filename, list_gemini_models
 from core.version import app_version
@@ -90,6 +91,8 @@ class Session:
 
         self.projects = ProjectStore(user_data_path("projects"))
         self._project = None
+        self._import: dict = {"status": "idle"}
+        self._import_results: list = []
         self._plans: list[TagPlan] = []
         self._plans_key: tuple | None = None
 
@@ -190,6 +193,7 @@ class Session:
                 "log": self._log[-50:],
                 "settings": self.settings(),
                 "update": self.update_state(),
+                "import": dict(self._import),
             }
 
     def entries(self, since: int = 0) -> dict:
@@ -384,7 +388,7 @@ class Session:
     def _project(self, project: Project | None) -> None:
         # Files of an open project are stored under the project, not their name alone.
         self.__project = project
-        self.ctrl.store_scope = (project.id, project.folder) if project else None
+        self.ctrl.store_scope = (project.id, project.folder, project.source_folder) if project else None
 
     def _file_rows(self, project: Project) -> list[dict]:
         code = self._project_code(project)
@@ -403,6 +407,7 @@ class Session:
             "name": project.name,
             "folder": project.folder,
             "gameRoot": project.game_root,
+            "hasOriginals": bool(project.source_folder) and os.path.isdir(project.source_folder),
             "profile": profile_for(project.game_root).name,
             "folderExists": os.path.isdir(project.folder),
             "target": project.target,
@@ -482,6 +487,90 @@ class Session:
         if self.ctrl.project.xml_path:
             self.close_file()
         self._project = None
+        self._import = {"status": "idle"}
+        self._bump()
+
+    # ------------------------------------------------------------------
+    # Importing translations made outside the app
+    # ------------------------------------------------------------------
+
+    def import_state(self) -> dict:
+        with self._lock:
+            return dict(self._import)
+
+    def start_import(self, folder: str) -> None:
+        """Compare a clean copy of the game's XMLs with the edited ones, in the background."""
+        if not self._project:
+            raise SessionError("no_project", 409)
+        self._require_idle()
+        if self._import.get("status") == "running":
+            raise SessionError("busy", 409)
+        clean = self.detect_game(folder)["xmlFolder"]
+        project = self._project
+        if os.path.normcase(os.path.abspath(clean)) == os.path.normcase(os.path.abspath(project.folder)):
+            raise SessionError("same_folder")
+        if project.source_folder and os.path.normcase(os.path.abspath(clean)) == os.path.normcase(project.source_folder):
+            raise SessionError("same_folder")
+        with self._lock:
+            self._import = {"status": "running", "folder": clean, "done": 0, "total": 0}
+        self._bump()
+
+        def progress(done: int, total: int) -> None:
+            with self._lock:
+                self._import.update(done=done, total=total)
+            self._bump()
+
+        def work() -> None:
+            try:
+                results = compare(project, clean, profile_for(project.game_root), progress)
+            except Exception as exc:  # report it instead of leaving the import spinning
+                self.log(str(exc), "error")
+                with self._lock:
+                    self._import = {"status": "error", "folder": clean}
+                self._bump()
+                return
+            self._import_results = results
+            summary = [r.to_json() for r in results if r.found or r.problem]
+            summary.sort(key=lambda r: (-r["found"], r["file"]))
+            with self._lock:
+                self._import = {
+                    "status": "ready",
+                    "folder": clean,
+                    "files": summary,
+                    "found": sum(len(r.found) for r in results),
+                    "texts": sum(r.texts for r in results),
+                    "missing": sum(r.problem == "missing" for r in results),
+                }
+            self._bump()
+
+        self._spawn(work)
+
+    def apply_import(self) -> dict:
+        """Keep the clean originals in the project and save the texts found as "to review"."""
+        if not self._project or self._import.get("status") != "ready":
+            raise SessionError("no_import", 409)
+        self._require_idle()
+        if self.ctrl.project.xml_path:
+            self.close_file()
+        project = self._project
+        results = self._import_results
+        target = os.path.join(self.projects.data_dir(project.id), "originals")
+        keep_originals(self._import["folder"], target, [r.rel for r in results if r.problem != "missing"])
+        self._project = self.projects.keep_originals(project.id, target, {r.rel: r.groups for r in results})
+        saved = store_found(self.ctrl.store, self._project, self._project_code(self._project), results)
+        with self._lock:
+            self._import = {"status": "idle"}
+        self._import_results = []
+        self.log(self.i18n.get("log_import_applied", n=saved))
+        self._bump()
+        return {"saved": saved}
+
+    def cancel_import(self) -> None:
+        if self._import.get("status") == "running":
+            raise SessionError("busy", 409)
+        with self._lock:
+            self._import = {"status": "idle"}
+        self._import_results = []
         self._bump()
 
     # ------------------------------------------------------------------

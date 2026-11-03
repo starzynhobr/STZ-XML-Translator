@@ -234,6 +234,7 @@
   "expand_structure": "Expandir estrutura XML",
   "log_api_key_needed": "Chave de API necessária. Clique no ícone de chave para configurar.",
   "log_load_success": "'{filename}' carregado — {count} entradas.",
+  "log_import_applied": "Tradução importada: {n} textos salvos para revisar. Os originais ficaram guardados no projeto.",
   "resize_columns_hint": "Arraste para redimensionar as colunas. Clique duas vezes para restaurar.",
   "table_search_placeholder": "Buscar em original, tradução, tag ou contexto",
   "table_search_results": "%1 de %2",

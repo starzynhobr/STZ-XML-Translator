@@ -195,9 +195,9 @@ class AppController:
 
     def __init__(self) -> None:
         self.store = TranslationStore(user_data_path(STORE_FILE))
-        # (project id, XML folder) while a project is open: file keys become
-        # "<id>:<path inside the folder>", otherwise "file:<name>".
-        self.store_scope: tuple[str, str] | None = None
+        # (project id, XML folder, originals folder) while a project is open:
+        # file keys become "<id>:<path inside the folder>", otherwise "file:<name>".
+        self.store_scope: tuple[str, ...] | None = None
         self.project = TranslationProject()
         self._worker: TranslationWorker | None = None
         self._xml_index: XmlDocumentIndex | None = None
@@ -705,13 +705,15 @@ class AppController:
     def store_key(self, xml_path: str) -> str:
         """Stable identity of a file: survives moving or reinstalling the game."""
         if self.store_scope:
-            project_id, folder = self.store_scope
-            try:
-                rel = os.path.relpath(os.path.abspath(xml_path), os.path.abspath(folder))
-            except ValueError:
-                rel = ".."
-            if not rel.startswith(".."):
-                return f"{project_id}:{rel.replace(os.sep, '/')}"
+            project_id, *folders = self.store_scope
+            # The game folder and the kept originals hold the same files.
+            for folder in filter(None, folders):
+                try:
+                    rel = os.path.relpath(os.path.abspath(xml_path), os.path.abspath(folder))
+                except ValueError:
+                    continue
+                if not rel.startswith(".."):
+                    return f"{project_id}:{rel.replace(os.sep, '/')}"
         return f"file:{os.path.basename(xml_path).lower()}"
 
     def _target_lang(self) -> str:

@@ -73,6 +73,22 @@ def test_an_agent_translates_a_file(call, game, tmp_path):
     assert texts[0] == "Uma espada curta."
 
 
+def test_an_agent_imports_a_hand_made_translation(call, tmp_path):
+    game, clean = tmp_path / "edited", tmp_path / "clean"
+    game.mkdir()
+    clean.mkdir()
+    (clean / "items.xml").write_text(XML, encoding="utf-8")
+    (game / "items.xml").write_text(XML.replace("A short sword.", "Uma espada curta."), encoding="utf-8")
+    project = call("create_project", game_folder=str(game), name="Game")
+    call("open_project", project_id=project["id"])
+
+    preview = call("import_translation", clean_folder=str(clean))
+    assert preview["found"] == 1
+    assert call("import_translation", clean_folder=str(clean), apply=True) == {"saved": 1}
+    files = call("open_project", project_id=project["id"])["files"]
+    assert files[0]["progress"]["translated"] == 1
+
+
 def test_errors_carry_a_code(call):
     with pytest.raises(ToolError, match="error: no_file"):
         call("list_entries")

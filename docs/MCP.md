@@ -66,6 +66,7 @@ deles.
 | `search_project` | procura um texto em todos os arquivos já abertos do projeto |
 | `entry_history` | versões anteriores de uma entrada e de onde vieram |
 | `get_glossary` / `add_glossary_terms` | glossário do idioma atual |
+| `import_translation` | importa uma tradução feita à mão na pasta do jogo, comparando com uma cópia limpa (prévia, depois `apply=true`) |
 | `export_xml` | grava o XML traduzido, sem mexer na estrutura |
 
 Erros voltam com um código estável (`error: no_file`, `error: folder_not_found`...).
