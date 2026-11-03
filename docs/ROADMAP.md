@@ -239,7 +239,7 @@ entries_fts  -- FTS5 sobre original + tradução: busca instantânea no jogo tod
 ## Integração com agentes de código (MCP)
 
 **Feito:** `engine/mcp_server.py` (SDK oficial `mcp` 2.x, extra `[mcp]` do
-`pyproject`), 23 ferramentas sobre a mesma `Session`. Como configurar e a lista
+`pyproject`), 22 ferramentas sobre a mesma `Session`. Como configurar e a lista
 de ferramentas estão em [MCP.md](MCP.md). Traduções do agente entram no
 histórico como "Agente".
 
