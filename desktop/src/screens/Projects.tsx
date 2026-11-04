@@ -1,4 +1,5 @@
 import { AlertTriangle, Check, ChevronRight, CircleHelp, Download, FileText, Folder, FolderOpen, Languages, Play, Plus, RotateCcw, Search, SlidersHorizontal, Trash2, Upload } from 'lucide-react'
+import StzLabsBadge from '@/components/StzLabsBadge'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import Select from '@/components/Select'
@@ -132,9 +133,12 @@ export function ProjectsHome({ state, refresh, onOpenXml, onOpenHelp, onOpenSett
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
+      <header className="relative flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
         <LogoMark />
         <span className="font-semibold tracking-[-0.01em]">XML Translator</span>
+        <div className="absolute left-1/2 hidden -translate-x-1/2 md:block">
+          <StzLabsBadge version={state.version} locale={state.settings.locale} />
+        </div>
         <div className="flex-1" />
         <Button onClick={onOpenHelp}>
           <CircleHelp aria-hidden="true" size={16} />

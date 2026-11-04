@@ -1,4 +1,5 @@
 import FloatingPanel from '@/components/FloatingPanel'
+import StzLabsBadge from '@/components/StzLabsBadge'
 import { Check, ChevronDown, ChevronRight, FileText, Gamepad2, SlidersHorizontal, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -302,9 +303,12 @@ export default function Start({ floating = false, initialPath, state, refresh, o
       {floating ? <header className="flex items-center justify-between gap-4 border-b border-line px-5 py-3">
         <h1 className="m-0 text-xl font-semibold">{t('startTitle')}</h1>
         <IconButton label={t('close')} disabled={busy} onClick={() => void cancel()}><X aria-hidden="true" size={18} /></IconButton>
-      </header> : <header className="flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
+      </header> : <header className="relative flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
         <LogoMark />
         <span className="font-semibold tracking-[-0.01em]">XML Translator</span>
+        <div className="absolute left-1/2 hidden -translate-x-1/2 md:block">
+          <StzLabsBadge version={state.version} locale={state.settings.locale} />
+        </div>
         <div className="flex-1" />
         {onBack && <Button onClick={() => void cancel()}>
           {state.loaded ? t('backToBench') : state.project?.name ?? t('projectsTitle')}
