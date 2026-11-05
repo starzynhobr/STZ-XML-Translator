@@ -114,17 +114,18 @@ build_nuitka.bat
 ```
 
 This activates `.venv` when present and produces the standalone app plus `dist\STZXMLTranslator-Setup-x.y.z.exe` when Inno Setup 6 is installed.
-Static Nuitka flags live in `main_qt.py` as `# nuitka-project:` comments.
+Static Nuitka flags for the engine live in `stz_engine.py` as `# nuitka-project:` comments.
+The script also builds the Tauri shell (`desktop/`) and puts both in `dist\stz_engine.dist`.
 Only dynamic flags such as version, jobs, and report output are passed by `build_nuitka.bat`.
-
-> QML files (`ui/**/*.qml`) are loaded at runtime — they must be included as data files, not compiled.
 
 ---
 
 ## Project Layout
 
 ```
-main_qt.py               Entry point — PySide6 engine, context properties, theme init
+stz_engine.py            Frozen entry point for the headless engine
+desktop/                 Tauri + React desktop app (the UI)
+engine/                  FastAPI engine the desktop app talks to
 core/
   app_controller.py      Facade: coordinates project, worker, config, and presets
   project.py             TranslationProject — entries, checkpoint, export/import
@@ -134,29 +135,11 @@ core/
   tradutor_api.py        Provider adapters (Gemini, DeepL, Azure, Ollama, Google)
   updater.py             GitHub release discovery, verified download, installer launch
   i18n.py                Locale loader
-ui/
-  main.qml               Root ApplicationWindow
-  theme.py               Colour token factory (_dark_base / _light_base) + 5 themes
-  theme_controller.py    ThemeController — applies theme dict and updates QPalette
-  viewmodel.py           AppViewModel — Python↔QML bridge (signals, slots, properties)
-  components/
-    LeftSidebar.qml      File loading, tag picker, presets, progress, export
-    EditPanel.qml        Provider config, batch/single translate, review, scroll
-    TranslationTable.qml Two-column table with status colours
-    LogPanel.qml         Terminal-style log panel
-    TagComboBox.qml      Editable searchable dropdown
-    StyledComboBox.qml   Themed ComboBox with fixed scroll and highlight behaviour
-    StyledScrollBar.qml  Thin tokenized scroll indicator
-    GlossaryDialog.qml   Fixed-term glossary editor
-    AppButton.qml        Themed button base
-    UpdateBanner.qml     Available-update actions and download progress
 locales/                 UI strings — en_US, pt_BR, es_ES, fr_FR, ja_JP
 assets/
   stz-xml.png            Source application icon
   icon.ico               Generated build icon (ignored by Git)
-  settings.svg           Settings gear icon (colour-tokenized via ColorOverlay)
 tests/
-  test_theme.py          Theme token structure and palette tests (43 cases)
   test_locale_completeness.py  Locale key parity tests (19 cases)
   test_app_controller.py AppController unit tests
 tag_presets.json         Saved tag presets (created at runtime)
@@ -171,7 +154,7 @@ config.json              User preferences — API keys, theme, language (created
 uv run pytest
 ```
 
-All tests are in `tests/` and run without launching the GUI. The suite covers theme token structure, locale key parity across all five languages, and AppController business logic.
+All tests are in `tests/` and run without launching the GUI. The suite covers the engine, locale key parity across all five languages, and AppController business logic.
 
 ---
 
@@ -179,7 +162,6 @@ All tests are in `tests/` and run without launching the GUI. The suite covers th
 
 | Problem | Solution |
 |---|---|
-| **White text on white context menu** | Ensure `QT_QPA_PLATFORM=windows:darkmode=2` is set — done automatically by `main_qt.py` on Win32. |
 | **Tags not detected / empty dropdown** | The file may use namespaces or non-repeating elements. Type the tag name manually and click **Reload**. |
 | **Translation never stops after Cancel** | Cancel stops the worker between batches. The current in-flight request finishes before stopping — HTTP calls cannot be interrupted mid-flight. |
 | **API key error with Google Translate** | Google Translate (Free) requires no key. If the error persists, check that the selected provider in the dropdown is indeed **Google Translate (Free)**. |
@@ -196,7 +178,7 @@ Bug reports and pull requests are welcome. Please open an issue first to discuss
 ```powershell
 python -m pytest          # all tests must pass
 ruff check .              # no lint errors
-python main_qt.py         # verify the UI loads and locale files are intact
+start.bat                 # verify the app loads and locale files are intact
 ```
 
 ---

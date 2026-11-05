@@ -1,6 +1,6 @@
 [package]
 name = "stz-xml-translator-desktop"
-version = "1.7.0"
+version = "1.7.1"
 description = "STZ XML Translator desktop shell"
 authors = ["starzynhobr"]
 license = "GPL-3.0-or-later"

@@ -27,9 +27,8 @@ The debug shell runs the engine from `.venv` (override with `STZ_PYTHON`).
 
 `build_nuitka.bat` builds both the standalone Python bundle and the Tauri shell,
 then packages them with Inno Setup. The installed shortcut opens
-`stz-xml-translator.exe`; its engine is `STZXMLTranslator.exe --engine` in the
+`stz-xml-translator.exe`; its engine is `stz-xml-engine.exe` in the
 same directory. Python and the repository are not needed on the target machine.
-The Qt UI remains available by launching `STZXMLTranslator.exe` directly.
 
 The shell monitors process exits and `/api/health`. It allows 30 seconds for
 startup and three automatic restarts, then shows a diagnostic path and a manual

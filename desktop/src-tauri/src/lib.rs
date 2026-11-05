@@ -69,12 +69,10 @@ fn command_spec() -> CommandSpec {
     } else {
         let program = std::env::current_exe()
             .expect("current exe")
-            .with_file_name("STZXMLTranslator.exe");
-        let mut args = vec!["--engine".into()];
-        args.extend(parent);
+            .with_file_name("stz-xml-engine.exe");
         CommandSpec {
             program,
-            args,
+            args: parent,
             directory: None,
         }
     }

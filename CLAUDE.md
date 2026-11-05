@@ -1,7 +1,7 @@
 ## Build system
 
 This project uses pyproject.toml as the single source of truth for
-dependencies. Nuitka build flags live in main_qt.py as # nuitka-project:
+dependencies. Nuitka build flags live in stz_engine.py as # nuitka-project:
 comments — the native Nuitka mechanism for per-project configuration.
 
 ### Running locally
@@ -9,8 +9,8 @@ comments — the native Nuitka mechanism for per-project configuration.
   build_nuitka.bat             # compiles the app
 
 ### Nuitka flags
-All static flags live in main_qt.py as `# nuitka-project: --flag` comments.
-Nuitka 4.1.2 reads these automatically when compiling main_qt.py.
+All static flags live in stz_engine.py as `# nuitka-project: --flag` comments.
+Nuitka 4.1.2 reads these automatically when compiling stz_engine.py.
 Only dynamic flags (--jobs, --file-version, --product-version, --report)
 stay in build_nuitka.bat.
 

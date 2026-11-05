@@ -11,7 +11,7 @@
 #endif
 #define AppPublisher "STZ Labs"
 #define AppExeName "stz-xml-translator.exe"
-#define SourceDir  "dist\main_qt.dist"
+#define SourceDir  "dist\stz_engine.dist"
 #if !FileExists(SourceDir + "\\stz-xml-translator.exe")
   #error Build the Tauri desktop shell before creating the installer
 #endif
@@ -70,6 +70,17 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Copia toda a pasta standalone gerada pelo Nuitka
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Up to 1.7.0 the bundle also carried the Qt UI; drop it on upgrade.
+Type: files; Name: "{app}\STZXMLTranslator.exe"
+Type: files; Name: "{app}\qt6*.dll"
+Type: files; Name: "{app}\opengl32sw.dll"
+Type: files; Name: "{app}\d3dcompiler_*.dll"
+Type: files; Name: "{app}\shiboken6*.dll"
+Type: filesandordirs; Name: "{app}\PySide6"
+Type: filesandordirs; Name: "{app}\shiboken6"
+Type: filesandordirs; Name: "{app}\ui"
 
 [Icons]
 ; Atalho no Menu Iniciar

@@ -2,12 +2,12 @@
 setlocal EnableExtensions
 REM ============================================================
 REM  STZ XML Translator — Nuitka Build Script
-REM  Flags estaticas definidas em main_qt.py (# nuitka-project:)
+REM  Flags estaticas definidas em stz_engine.py (# nuitka-project:)
 REM  Apenas flags dinamicas ficam aqui.
 REM ============================================================
 
 REM --- Versao (fonte unica: altere aqui para um novo release) ---
-set APP_VERSION=1.7.0.0
+set APP_VERSION=1.7.1.0
 for /f "tokens=1-3 delims=." %%a in ("%APP_VERSION%") do set APP_SEMVER=%%a.%%b.%%c
 
 REM --- UPX pos-build ---
@@ -31,7 +31,7 @@ set SKIP_UPGRADE=1
 REM --- Nao pausar ao final (CI / automacao) ---
 if "%NO_PAUSE%"=="" set NO_PAUSE=0
 
-REM Modo fixo: standalone (definido em main_qt.py via nuitka-project)
+REM Modo fixo: standalone (definido em stz_engine.py via nuitka-project)
 set BUILD_MODE=standalone
 
 REM ============================================================
@@ -67,10 +67,8 @@ if not "%SKIP_UPGRADE%"=="1" (
 REM Remove artefatos de build anteriores
 echo.
 echo Limpando artefatos anteriores...
-if exist "main_qt.build"              rmdir /s /q "main_qt.build"
-if exist "main_qt.onefile-build"      rmdir /s /q "main_qt.onefile-build"
-if exist "dist\main_qt.dist"          rmdir /s /q "dist\main_qt.dist"
-if exist "dist\STZXMLTranslator.exe"  del   /q    "dist\STZXMLTranslator.exe"
+if exist "dist\stz_engine.build"      rmdir /s /q "dist\stz_engine.build"
+if exist "dist\stz_engine.dist"       rmdir /s /q "dist\stz_engine.dist"
 if exist "compilation-report.xml"     del   /q    "compilation-report.xml"
 
 REM Converte icone PNG -> ICO (multi-tamanho)
@@ -98,13 +96,13 @@ REM Embute a versao canonica no runtime compilado. Necessario porque o Nuitka
 REM nao expoe de forma confiavel os recursos de versao do executavel ao Python.
 > "core\_build_version.py" echo BUILD_VERSION = "%APP_VERSION%"
 
-REM Flags estaticas carregadas dos comentarios # nuitka-project: em main_qt.py
+REM Flags estaticas carregadas dos comentarios # nuitka-project: em stz_engine.py
 python -m nuitka ^
     --jobs=%NUMBER_OF_PROCESSORS% ^
     --file-version=%APP_VERSION% ^
     --product-version=%APP_VERSION% ^
     %REPORT_PARAM% ^
-    main_qt.py
+    stz_engine.py
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -132,7 +130,7 @@ if errorlevel 1 (
     exit /b 1
 )
 popd
-copy /y "desktop\src-tauri\target\release\stz-xml-translator.exe" "dist\main_qt.dist\stz-xml-translator.exe" >nul
+copy /y "desktop\src-tauri\target\release\stz-xml-translator.exe" "dist\stz_engine.dist\stz-xml-translator.exe" >nul
 if errorlevel 1 exit /b 1
 
 REM --- UPX (pos-build, opcional) ---
@@ -141,12 +139,8 @@ if "%USE_UPX%"=="1" (
     echo Comprimindo com UPX...
     where upx >nul 2>&1
     if not errorlevel 1 (
-        if "%BUILD_MODE%"=="onefile" (
-            upx --best --lzma "dist\STZXMLTranslator.exe"
-        ) else (
-            upx --best --lzma "dist\main_qt.dist\STZXMLTranslator.exe"
-            for /r "dist\main_qt.dist" %%f in (*.dll) do upx --best --lzma "%%f"
-        )
+        upx --best --lzma "dist\stz_engine.dist\stz-xml-engine.exe"
+        for /r "dist\stz_engine.dist" %%f in (*.dll) do upx --best --lzma "%%f"
     ) else (
         echo Aviso: upx.exe nao encontrado no PATH, pulando compressao.
     )
@@ -184,12 +178,8 @@ echo ========================================
 echo  Build concluido com sucesso!
 echo ========================================
 echo.
-if "%BUILD_MODE%"=="onefile" (
-    echo Executavel : dist\STZXMLTranslator.exe
-) else (
-    echo Pasta      : dist\main_qt.dist\
-    echo Executavel : dist\main_qt.dist\stz-xml-translator.exe
-)
+echo Pasta      : dist\stz_engine.dist\
+echo Executavel : dist\stz_engine.dist\stz-xml-translator.exe
 if "%BUILD_REPORT%"=="1" echo Relatorio  : compilation-report.xml
 echo.
 if /I not "%CI%"=="true" if not "%NO_PAUSE%"=="1" pause

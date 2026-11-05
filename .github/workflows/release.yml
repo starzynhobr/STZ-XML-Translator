@@ -71,7 +71,7 @@ jobs:
           Write-Host "VERSION=$version"
           Write-Host "APP_VERSION=$appVersion"
 
-      # Builds the standalone executable with static Nuitka flags read from main_qt.py.
+      # Builds the standalone executable with static Nuitka flags read from stz_engine.py.
       - name: Build executable with Nuitka
         run: |
           Set-Content -Path ".\core\_build_version.py" -Value "BUILD_VERSION = `"$env:APP_VERSION`"" -Encoding ascii
@@ -79,7 +79,7 @@ jobs:
             --jobs=$env:NUMBER_OF_PROCESSORS `
             --file-version=$env:APP_VERSION `
             --product-version=$env:APP_VERSION `
-            main_qt.py
+            stz_engine.py
 
       - name: Install Inno Setup
         run: |
@@ -102,7 +102,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
           npm run tauri build -- --no-bundle
           if ($LASTEXITCODE -ne 0) { throw "Desktop build failed" }
-          Copy-Item "src-tauri\target\release\stz-xml-translator.exe" "..\dist\main_qt.dist\stz-xml-translator.exe"
+          Copy-Item "src-tauri\target\release\stz-xml-translator.exe" "..\dist\stz_engine.dist\stz-xml-translator.exe"
 
       - name: Build Inno Setup installer
         run: |
@@ -126,7 +126,7 @@ jobs:
           if (-not (Test-Path $setup)) {
             throw "Missing installer: $setup"
           }
-          Compress-Archive -Path ".\dist\main_qt.dist\*" -DestinationPath $portable -CompressionLevel Optimal
+          Compress-Archive -Path ".\dist\stz_engine.dist\*" -DestinationPath $portable -CompressionLevel Optimal
           foreach ($asset in @($setup, $portable)) {
             $hash = (Get-FileHash -Path $asset -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $([IO.Path]::GetFileName($asset))" | Set-Content "$asset.sha256" -Encoding ascii

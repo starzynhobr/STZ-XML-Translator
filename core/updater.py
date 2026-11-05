@@ -176,7 +176,14 @@ def launch_installer(path: str) -> bool:
     if not installer.is_file() or installer.suffix.lower() != ".exe":
         return False
     try:
-        subprocess.Popen([str(installer)], close_fds=True)
-    except OSError:
+        # The app kills the engine's whole process tree on exit, which took the
+        # installer with it. Going through `start` leaves the installer with no
+        # living parent, so it survives that kill.
+        subprocess.run(
+            ["cmd.exe", "/c", "start", "", str(installer)],
+            check=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.CalledProcessError):
         return False
     return True

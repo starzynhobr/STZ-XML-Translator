@@ -34,8 +34,8 @@ $AppId               = 'STZXMLTranslator'          # sem espaços, só letras/d�
 $PublisherDisplayName = 'STZ Labs'
 $PublisherCN         = "CN=$PublisherDisplayName"  # deve bater exatamente com o cert
 $Description         = 'XML localization tool for game modders'
-$ExecutableName      = 'STZXMLTranslator.exe'
-$NuitkaDistFolder    = "dist\main_qt.dist"          # output do Nuitka --standalone
+$ExecutableName      = 'stz-xml-translator.exe'
+$NuitkaDistFolder    = "dist\stz_engine.dist"          # output do Nuitka --standalone
 $PfxPasswordPlain    = 'STZBuild_msix'             # senha do .pfx (só usada em build)
 $CertFriendlyName    = "$AppName Self-Signed"
 # ============================================================

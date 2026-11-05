@@ -151,12 +151,14 @@ def test_download_removes_partial_file_after_integrity_failure(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
-def test_launch_installer_uses_a_direct_process_without_shell(tmp_path):
+def test_launch_installer_detaches_from_the_engine_tree(tmp_path):
     installer = tmp_path / "setup.exe"
     installer.write_bytes(b"placeholder")
-    with patch("core.updater.subprocess.Popen") as popen:
+    with patch("core.updater.subprocess.run") as run:
         assert launch_installer(str(installer)) is True
-    popen.assert_called_once_with([str(installer)], close_fds=True)
+    args = run.call_args.args[0]
+    assert args[:4] == ["cmd.exe", "/c", "start", ""]
+    assert args[4] == str(installer)
 
 
 def test_launch_installer_rejects_missing_or_non_executable_files(tmp_path):

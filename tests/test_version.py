@@ -9,9 +9,9 @@ from core.version import _build_script_version, app_version
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_canonical_build_version_is_1_7_0():
-    assert _build_script_version(ROOT / "build_nuitka.bat") == (1, 7, 0, 0)
-    assert app_version() == "1.7.0"
+def test_canonical_build_version_is_1_7_1():
+    assert _build_script_version(ROOT / "build_nuitka.bat") == (1, 7, 1, 0)
+    assert app_version() == "1.7.1"
 
 
 def test_nuitka_output_reads_version_from_windows_executable(monkeypatch):
@@ -57,11 +57,7 @@ def test_project_metadata_matches_canonical_version():
     assert project_version == app_version()
 
 
-def test_ui_titles_get_version_from_viewmodel():
-    for qml_name in ("main.qml", "ModernMain.qml"):
-        qml = (ROOT / "ui" / qml_name).read_text(encoding="utf-8")
-        assert "vm.appVersion" in qml
-
+def test_locale_titles_carry_no_version():
     for locale_file in (ROOT / "locales").glob("*.json"):
         title = json.loads(locale_file.read_text(encoding="utf-8"))["window_title"]
         assert not re.search(r"\bv?\d+\.\d+", title)
