@@ -27,10 +27,12 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'npm run dev',
+      // A built bundle, not the dev server: on-demand transforms made the first
+      // page load in CI fail now and then with refused connections.
+      command: 'npx vite build --outDir dist-e2e --emptyOutDir && npx vite preview --outDir dist-e2e --port 1431 --strictPort',
       url: 'http://localhost:1431',
       reuseExistingServer: false,
-      timeout: 60_000,
+      timeout: 180_000,
       env: {
         STZ_E2E_ENGINE: 'http://127.0.0.1:8793',
         VITE_BRIDGE_URL: 'http://localhost:1431',

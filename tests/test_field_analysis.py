@@ -7,7 +7,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.extrator import Group, indexar_xml
-from core.field_analysis import CODE, FLAG, ID, NAME, NUMBER, PATH, TEXT, classify_field, classify_value
+from core.field_analysis import (
+    CODE,
+    FLAG,
+    ID,
+    NAME,
+    NUMBER,
+    PATH,
+    TEXT,
+    classify_field,
+    classify_value,
+)
 from core.game_profiles import CONTEXT, GENERIC, IGNORE, MAA_REDUX, TRANSLATE, plan, profile_for
 from core.project import TranslationProject
 from engine.server import create_app
